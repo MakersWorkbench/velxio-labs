@@ -1,0 +1,300 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-09T19:54:32.859Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 100,
+      "y": 80,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "// HC-SR04 distance meter for the ESP32\n// TRIG goes to GPIO 18. ECHO goes to GPIO 19 through a 1k and 2.2k voltage divider.\n\n#define TRIG_PIN 18                  // GPIO 18 sends the trigger pulse to the sensor\n#define ECHO_PIN 19                  // GPIO 19 listens for the echo pulse (3.3 V after the divider)\n\nconst float CM_PER_US = 0.0343;      // centimeters sound travels in one microsecond (at about 20 C)\n\nfloat measureCm() {\n  digitalWrite(TRIG_PIN, LOW);       // start from a clean LOW\n  delayMicroseconds(2);              // let the pin settle for 2 microseconds\n  digitalWrite(TRIG_PIN, HIGH);      // begin the 10 microsecond trigger pulse\n  delayMicroseconds(10);             // hold HIGH for 10 microseconds\n  digitalWrite(TRIG_PIN, LOW);       // end the pulse: the sensor now fires its sound burst\n\n  long width = pulseIn(ECHO_PIN, HIGH, 30000UL);  // time ECHO stays HIGH, give up after 30,000 us\n  if (width == 0) {                  // 0 means pulseIn timed out\n    return -1.0;                     // no echo came back, so report \"no reading\"\n  }\n  return width * CM_PER_US / 2.0;    // round trip, so halve the distance\n}\n\nvoid setup() {\n  Serial.begin(115200);              // start the Serial Monitor connection at 115200 baud\n  pinMode(TRIG_PIN, OUTPUT);         // TRIG is an output: we talk to the sensor\n  pinMode(ECHO_PIN, INPUT);          // ECHO is an input: the sensor talks to us\n  Serial.println(\"HC-SR04 ready\");   // a friendly sign of life\n}\n\nvoid loop() {\n  float cm = measureCm();            // take one measurement\n  if (cm < 0) {                      // did we get the \"no reading\" value?\n    Serial.println(\"Out of range\");  // nothing was close enough to bounce an echo back\n  } else {\n    Serial.printf(\"Distance: %.1f cm\\n\", cm);  // print the distance to one decimal place\n  }\n  delay(500);                        // wait half a second before the next measurement\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "hc-sr04_1791500000001_hcsr04a",
+      "metadataId": "hc-sr04",
+      "x": 278.0530763731865,
+      "y": 90.18186396876698,
+      "properties": {
+        "distance": "40"
+      }
+    },
+    {
+      "id": "resistor_1k_1791500000002_divtop",
+      "metadataId": "resistor-1k",
+      "x": 295.6675927282391,
+      "y": 265.736778809903,
+      "properties": {
+        "value": "1000",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "junction_div-0001-4000-8000-000000000001",
+      "metadataId": "junction",
+      "x": 300,
+      "y": 300,
+      "properties": {
+        "color": "#f97316"
+      }
+    },
+    {
+      "id": "resistor_2k2_1791500000003_divbot",
+      "metadataId": "resistor-2k2",
+      "x": 242.9359839445375,
+      "y": 352.6264913558152,
+      "properties": {
+        "value": "2200",
+        "rotation": 90
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 84.09778358011081,
+          "y": 347
+        },
+        {
+          "x": 84.09778358011081,
+          "y": 392.52470496429527
+        },
+        {
+          "x": 275.6379029938698,
+          "y": 392.52470496429527
+        },
+        {
+          "x": 275.6379029938698,
+          "y": 216.82547792039938
+        },
+        {
+          "x": 355.3530763731865,
+          "y": 216.82547792039938
+        }
+      ],
+      "id": "wire-1791500000001",
+      "start": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "5V",
+        "x": 106,
+        "y": 347
+      },
+      "end": {
+        "componentId": "hc-sr04_1791500000001_hcsr04a",
+        "pinName": "VCC",
+        "x": 355.3530763731865,
+        "y": 190.68186396876698
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 257.9488575515202,
+          "y": 220
+        },
+        {
+          "x": 257.9488575515202,
+          "y": 232.6965275044923
+        },
+        {
+          "x": 365.3530763731865,
+          "y": 232.6965275044923
+        }
+      ],
+      "id": "wire-1791500000002",
+      "start": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "18",
+        "x": 233,
+        "y": 220
+      },
+      "end": {
+        "componentId": "hc-sr04_1791500000001_hcsr04a",
+        "pinName": "TRIG",
+        "x": 365.3530763731865,
+        "y": 190.68186396876698
+      },
+      "color": "#32CD32",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 375.3530763731865,
+          "y": 237.72234161487026
+        },
+        {
+          "x": 353.88936658050767,
+          "y": 237.72234161487026
+        }
+      ],
+      "id": "wire-1791500000003",
+      "start": {
+        "componentId": "hc-sr04_1791500000001_hcsr04a",
+        "pinName": "ECHO",
+        "x": 375.3530763731865,
+        "y": 190.68186396876698
+      },
+      "end": {
+        "componentId": "resistor_1k_1791500000002_divtop",
+        "pinName": "1",
+        "x": 356.5175927282391,
+        "y": 249.236778809903
+      },
+      "color": "#FFD700",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 355.3530763731865,
+          "y": 308.036778809903
+        },
+        {
+          "x": 355.3530763731865,
+          "y": 314.00476686525246
+        },
+        {
+          "x": 311,
+          "y": 314.00476686525246
+        }
+      ],
+      "id": "wire-1791500000004",
+      "start": {
+        "componentId": "resistor_1k_1791500000002_divtop",
+        "pinName": "2",
+        "x": 356.5175927282391,
+        "y": 308.036778809903
+      },
+      "end": {
+        "componentId": "junction_div-0001-4000-8000-000000000001",
+        "pinName": "J",
+        "x": 311,
+        "y": 311
+      },
+      "color": "#FFD700",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 311,
+          "y": 207
+        }
+      ],
+      "id": "wire-1791500000005",
+      "start": {
+        "componentId": "junction_div-0001-4000-8000-000000000001",
+        "pinName": "J",
+        "x": 311,
+        "y": 311
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "19",
+        "x": 233,
+        "y": 207
+      },
+      "color": "#FFD700",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 311,
+          "y": 330.1264913558152
+        }
+      ],
+      "id": "wire-1791500000006",
+      "start": {
+        "componentId": "junction_div-0001-4000-8000-000000000001",
+        "pinName": "J",
+        "x": 311,
+        "y": 311
+      },
+      "end": {
+        "componentId": "resistor_2k2_1791500000003_divbot",
+        "pinName": "1",
+        "x": 309.7859839445375,
+        "y": 330.1264913558152
+      },
+      "color": "#FFD700",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-1791572222339",
+      "start": {
+        "componentId": "resistor_2k2_1791500000003_divbot",
+        "pinName": "2",
+        "x": 309.7859839445375,
+        "y": 388.9264913558152
+      },
+      "end": {
+        "componentId": "hc-sr04_1791500000001_hcsr04a",
+        "pinName": "GND",
+        "x": 385.3530763731865,
+        "y": 190.68186396876698
+      },
+      "waypoints": [
+        {
+          "x": 309.7859839445375,
+          "y": 396.2151089762031
+        },
+        {
+          "x": 627.3,
+          "y": 396.2151089762031
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1791572346279",
+      "start": {
+        "componentId": "resistor_2k2_1791500000003_divbot",
+        "pinName": "2",
+        "x": 309.7859839445375,
+        "y": 388.9264913558152
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.3",
+        "x": 233,
+        "y": 194
+      },
+      "waypoints": [
+        {
+          "x": 309.7859839445375,
+          "y": 396.2151089762031
+        },
+        {
+          "x": 289.94910207852047,
+          "y": 396.2151089762031
+        },
+        {
+          "x": 289.94910207852047,
+          "y": 194
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}

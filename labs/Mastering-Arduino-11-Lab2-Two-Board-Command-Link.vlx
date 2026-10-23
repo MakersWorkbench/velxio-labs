@@ -1,0 +1,245 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-15T12:00:00.000Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 40,
+      "y": 120,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    },
+    {
+      "id": "arduino-uno-2",
+      "boardKind": "arduino-uno",
+      "x": 560,
+      "y": 120,
+      "activeFileGroupId": "group-arduino-uno-2",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <SoftwareSerial.h>                     // second serial port for the board-to-board link\n\n// ---- pins ----\nconst uint8_t LINK_RX_PIN = 10;                 // receives replies from board B's pin 11\nconst uint8_t LINK_TX_PIN = 11;                 // sends commands to board B's pin 10\nconst uint8_t HEARTBEAT_PIN = LED_BUILTIN;      // onboard LED, pin 13\n\n// ---- settings ----\nconst unsigned long LINK_BAUD = 9600;           // must match board B\nconst unsigned long HEARTBEAT_MS = 500;         // heartbeat LED toggles this often\nconst unsigned long REPLY_TIMEOUT_MS = 1000;    // how long to wait for B before reporting a problem\nconst uint8_t MAX_LINE = 32;                    // longest line either port will accept\n\nSoftwareSerial link(LINK_RX_PIN, LINK_TX_PIN);  // (RX, TX)\n\n// ---- line buffers, one per port ----\nchar commandBuffer[MAX_LINE + 1];               // what you're typing in the Serial Monitor\nuint8_t commandLength = 0;\nchar replyBuffer[MAX_LINE + 1];                 // what board B is sending back\nuint8_t replyLength = 0;\n\n// ---- state ----\nbool waitingForReply = false;                   // true between sending a command and getting its answer\nunsigned long commandSentAt = 0;                // millis() when the last command went out\nunsigned long lastHeartbeat = 0;                // millis() of the last heartbeat toggle\nbool heartbeatOn = false;                       // current heartbeat LED state\n\n// Collects bytes from any serial port into a buffer.\n// Returns true once a complete line (ending in '\\n') is ready.\n// \"Stream &port\" means: use the real port we were handed (Serial or link), not a copy.\nbool readLine(Stream &port, char *buffer, uint8_t &length) {\n  while (port.available() > 0) {                // handle every byte that has already arrived\n    char c = port.read();\n    if (c == '\\r') {                            // ignore carriage returns\n      continue;\n    }\n    if (c == '\\n') {                            // end of line: finish the string and report success\n      buffer[length] = '\\0';\n      length = 0;                               // ready for the next line next time\n      return true;\n    }\n    if (length < MAX_LINE) {                    // store the character if there's room\n      buffer[length] = c;\n      length++;\n    }\n  }\n  return false;                                 // no complete line yet; try again next loop\n}\n\nvoid setup() {\n  Serial.begin(115200);                         // USB link to your computer\n  link.begin(LINK_BAUD);                        // UART link to board B\n  pinMode(HEARTBEAT_PIN, OUTPUT);\n  Serial.println(F(\"Two-Board Command Link: controller (board A)\"));\n  Serial.println(F(\"Commands: PING, LED ON, LED OFF, READ\"));\n}\n\nvoid updateHeartbeat(unsigned long now) {\n  if (now - lastHeartbeat >= HEARTBEAT_MS) {    // Part 4's non-blocking timing pattern\n    lastHeartbeat = now;\n    heartbeatOn = !heartbeatOn;                 // flip the LED state\n    digitalWrite(HEARTBEAT_PIN, heartbeatOn ? HIGH : LOW);\n  }\n}\n\nvoid checkForTypedCommand(unsigned long now) {\n  if (readLine(Serial, commandBuffer, commandLength)) {   // a full command was typed\n    if (waitingForReply) {                                // keep the protocol to one command at a time\n      Serial.println(F(\"Still waiting on the last reply, try again in a moment.\"));\n      return;\n    }\n    link.print(commandBuffer);                  // send the command text across the link\n    link.print('\\n');                           // and the newline that tells B the command is complete\n    waitingForReply = true;\n    commandSentAt = now;                        // start the reply timeout clock\n    Serial.print(F(\"Sent to B: \"));\n    Serial.println(commandBuffer);\n  }\n}\n\nvoid checkForReply(unsigned long now) {\n  if (readLine(link, replyBuffer, replyLength)) {         // a full reply arrived from B\n    Serial.print(F(\"B says: \"));\n    Serial.println(replyBuffer);\n    waitingForReply = false;\n  } else if (waitingForReply && now - commandSentAt >= REPLY_TIMEOUT_MS) {  // too long with no answer\n    Serial.println(F(\"No reply from B. Check the link wires and ground.\"));\n    waitingForReply = false;                    // give up on this command so new ones can be sent\n  }\n}\n\nvoid loop() {\n  unsigned long now = millis();\n  updateHeartbeat(now);                         // proves the loop never blocks\n  checkForTypedCommand(now);\n  checkForReply(now);\n}\n"
+      }
+    ],
+    "group-arduino-uno-2": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <SoftwareSerial.h>                     // second serial port for the board-to-board link\n\n// ---- pins ----\nconst uint8_t LINK_RX_PIN = 10;                 // receives commands from board A's pin 11\nconst uint8_t LINK_TX_PIN = 11;                 // sends replies to board A's pin 10\nconst uint8_t LED_PIN = 8;                      // the LED this board switches on command\nconst uint8_t KNOB_PIN = A0;                    // potentiometer wiper, reported by READ\n\n// ---- settings ----\nconst unsigned long LINK_BAUD = 9600;           // must match board A\nconst uint8_t MAX_LINE = 32;                    // longest command we'll accept\n\nSoftwareSerial link(LINK_RX_PIN, LINK_TX_PIN);  // (RX, TX)\n\nchar commandBuffer[MAX_LINE + 1];               // the command arriving from board A\nuint8_t commandLength = 0;\n\n// Same line reader as the controller. It works on any Stream: Serial or link.\nbool readLine(Stream &port, char *buffer, uint8_t &length) {\n  while (port.available() > 0) {\n    char c = port.read();\n    if (c == '\\r') {                            // ignore carriage returns\n      continue;\n    }\n    if (c == '\\n') {                            // end of line: finish the string\n      buffer[length] = '\\0';\n      length = 0;\n      return true;\n    }\n    if (length < MAX_LINE) {                    // store the character if there's room\n      buffer[length] = c;\n      length++;\n    }\n  }\n  return false;\n}\n\nvoid setup() {\n  Serial.begin(115200);                         // USB link, used here only for a log you can watch\n  link.begin(LINK_BAUD);                        // UART link to board A\n  pinMode(LED_PIN, OUTPUT);\n  Serial.println(F(\"Two-Board Command Link: responder (board B)\"));\n}\n\n// Every command gets exactly one reply line, so board A always knows when we're done.\nvoid handleCommand(const char *command) {\n  Serial.print(F(\"Received: \"));                // local log on board B's own Serial Monitor\n  Serial.println(command);\n\n  if (strcmp(command, \"PING\") == 0) {           // simple \"are you there?\" check\n    link.println(F(\"PONG\"));\n  } else if (strcmp(command, \"LED ON\") == 0) {\n    digitalWrite(LED_PIN, HIGH);\n    link.println(F(\"OK LED ON\"));\n  } else if (strcmp(command, \"LED OFF\") == 0) {\n    digitalWrite(LED_PIN, LOW);\n    link.println(F(\"OK LED OFF\"));\n  } else if (strcmp(command, \"READ\") == 0) {    // report the knob as a raw ADC number (Part 10)\n    int knob = analogRead(KNOB_PIN);\n    link.print(F(\"KNOB \"));\n    link.println(knob);\n  } else {                                      // never leave A waiting in silence\n    link.print(F(\"ERR unknown command: \"));\n    link.println(command);\n  }\n}\n\nvoid loop() {\n  if (readLine(link, commandBuffer, commandLength)) {     // a complete command arrived from A\n    handleCommand(commandBuffer);\n  }\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "led_ard11_b",
+      "metadataId": "led",
+      "x": 880,
+      "y": 0,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "red",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "resistor_220_ard11_b",
+      "metadataId": "resistor-220",
+      "x": 780,
+      "y": 30,
+      "properties": {
+        "value": "220",
+        "rotation": 180
+      }
+    },
+    {
+      "id": "potentiometer_ard11_b",
+      "metadataId": "potentiometer",
+      "x": 960,
+      "y": 200,
+      "properties": {
+        "min": 0,
+        "max": 1023,
+        "value": 512,
+        "step": 1,
+        "startDegree": -135,
+        "endDegree": 135
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "wire-1",
+      "start": {
+        "componentId": "arduino-uno",
+        "pinName": "11",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "10",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#3b82f6",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-2",
+      "start": {
+        "componentId": "arduino-uno-2",
+        "pinName": "11",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "10",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#22c55e",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-3",
+      "start": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "GND.1",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-4",
+      "start": {
+        "componentId": "arduino-uno-2",
+        "pinName": "8",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "resistor_220_ard11_b",
+        "pinName": "2",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#FF8C00",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-5",
+      "start": {
+        "componentId": "led_ard11_b",
+        "pinName": "A",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "resistor_220_ard11_b",
+        "pinName": "1",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#FF8C00",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-6",
+      "start": {
+        "componentId": "led_ard11_b",
+        "pinName": "C",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "GND.2",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-7",
+      "start": {
+        "componentId": "potentiometer_ard11_b",
+        "pinName": "VCC",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "5V",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#cc0000",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-8",
+      "start": {
+        "componentId": "potentiometer_ard11_b",
+        "pinName": "GND",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "GND.3",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-9",
+      "start": {
+        "componentId": "potentiometer_ard11_b",
+        "pinName": "SIG",
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "componentId": "arduino-uno-2",
+        "pinName": "A0",
+        "x": 0,
+        "y": 0
+      },
+      "waypoints": [],
+      "color": "#a855f7",
+      "autoRouted": true
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

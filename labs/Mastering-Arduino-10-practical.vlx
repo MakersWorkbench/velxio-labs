@@ -1,0 +1,347 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-02T09:20:04.876Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 23.175554229462506,
+      "y": 133.75812785688564,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 117647
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "// ---- pins ----\nconst uint8_t POT_PIN = A0;  // the \"unknown voltage\" this meter measures\nconst uint8_t LDR_PIN = A1;  // AO output of the sensor board\nconst uint8_t INDICATOR_LED_PIN = 8;  // lights when the room reads dark\n\n// ---- averaging ----\nconst uint8_t SAMPLE_COUNT = 16;\n\n// ---- potentiometer calibration: two real points measured with a multimeter ----\nconst int POT_CAL_RAW_LOW = 12;         // averaged raw reading, knob fully counterclockwise\nconst float POT_CAL_VOLTS_LOW = 0.02;   // what the multimeter read at that position\nconst int POT_CAL_RAW_HIGH = 1010;      // averaged raw reading, knob fully clockwise\nconst float POT_CAL_VOLTS_HIGH = 4.97;  // what the multimeter showed at that position\n\n// ---- photoresistor calibration: dark and bright endpoints ----\nconst int LDR_CAL_RAW_DARK = 10;        // averaged reading with the sensor fully covered\nconst int LDR_CAL_RAW_BRIGHT = 57;     // averaged reading under a bright flashlight held close\nconst int DARK_THRESHOLD_PERCENT = 15;  // brightness below this we call \"dark\" and light the LED\n\nunsigned long lastReportTime = 0;\nconst unsigned long REPORT_INTERVAL_MS = 250;\n\nvoid setup() {\n  Serial.begin(115200);                     // matches the site default baud rate\n  pinMode(INDICATOR_LED_PIN, OUTPUT);\n  Serial.println(F(\"Calibrated Bench Meter booting...\"));\n}\n\nint averagedRead(uint8_t pin) {\n  // Oversampling: SAMPLE_COUNT back-to-back readings, averaged together, cancels out\n  // most of the random noise a single analogRead() call carries (see Exercise 3).\n  long total = 0;  // long, so a larger SAMPLE_COUNT can't overflow an int\n  for (uint8_t i = 0; i < SAMPLE_COUNT; i++) {\n    total += analogRead(pin);\n  }\n  return total / SAMPLE_COUNT;\n}\n\nfloat calibratedVolts(int rawAveraged) {\n  // Linear interpolation between the two real-world points measured with a multimeter (see Exercise 4).\n  float slope = (POT_CAL_VOLTS_HIGH - POT_CAL_VOLTS_LOW) / (float)(POT_CAL_RAW_HIGH - POT_CAL_RAW_LOW); // volts per raw ADC count\n  return POT_CAL_VOLTS_LOW + slope * (rawAveraged - POT_CAL_RAW_LOW); // project the current reading onto that measured line\n}\n\nint calibratedBrightnessPercent(int rawAveraged) {\n  // Same two-point idea as the voltage channel, scaled to 0-100% instead (see Exercise 5).\n  long percent = map(rawAveraged, LDR_CAL_RAW_DARK, LDR_CAL_RAW_BRIGHT, 0, 100);\n  percent = constrain(percent, 0, 100); // clamp in case a reading falls outside the two calibration points\n  return (int)percent;\n}\n\nvoid loop() {\n  unsigned long now = millis();  // unsigned subtraction keeps working when millis() wraps (see Part 4)\n  if (now - lastReportTime >= REPORT_INTERVAL_MS) {\n    lastReportTime = now;\n\n    int potRaw = averagedRead(POT_PIN);\n    int ldrRaw = averagedRead(LDR_PIN);\n\n    float volts = calibratedVolts(potRaw);\n    int brightnessPercent = calibratedBrightnessPercent(ldrRaw);\n\n    Serial.print(F(\"Voltage: \"));\n    Serial.print(volts, 2);  // two decimals is about all a 10-bit ADC can honestly support\n    Serial.print(F(\" V   Brightness: \"));\n    Serial.print(brightnessPercent);\n    Serial.println(F(\"%\"));\n\n    bool isDark = brightnessPercent < DARK_THRESHOLD_PERCENT;\n    digitalWrite(INDICATOR_LED_PIN, isDark ? HIGH : LOW);  // light only when dark by our measured scale, not a raw ADC number\n  }\n}"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "potentiometer_1790931220379_wme4a0921",
+      "metadataId": "potentiometer",
+      "x": 428.5877688615969,
+      "y": 225.8919429352714,
+      "properties": {
+        "min": 0,
+        "max": 1023,
+        "value": 754,
+        "step": 1,
+        "startDegree": -135,
+        "endDegree": 135
+      }
+    },
+    {
+      "id": "photoresistor_sensor_1790931252551_810kovkmo",
+      "metadataId": "photoresistor-sensor",
+      "x": 266.4742775772915,
+      "y": 136.31857578975345,
+      "properties": {
+        "ledDO": false,
+        "ledPower": false,
+        "lux": 104,
+        "rotation": 90
+      }
+    },
+    {
+      "id": "led_1790932376738_6p45w4sxy",
+      "metadataId": "led",
+      "x": 271.28806581736217,
+      "y": 36.86643829608724,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "red",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "resistor_220_1790932417786_tk6mc00nl",
+      "metadataId": "resistor-220",
+      "x": 165.5005141582685,
+      "y": 64.39769636604964,
+      "properties": {
+        "value": "220",
+        "rotation": 180
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "wire-1790932137103",
+      "start": {
+        "componentId": "potentiometer_1790931220379_wme4a0921",
+        "pinName": "SIG",
+        "x": 473.5877688615969,
+        "y": 300.3919429352714
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "A0",
+        "x": 231.1755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 469.3247098057624,
+          "y": 300.3919429352714
+        },
+        {
+          "x": 469.3247098057624,
+          "y": 389.5023380499112
+        },
+        {
+          "x": 268.3311094362614,
+          "y": 389.5023380499112
+        },
+        {
+          "x": 230.4742587986601,
+          "y": 427.23661876335325
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932157570",
+      "start": {
+        "componentId": "potentiometer_1790931220379_wme4a0921",
+        "pinName": "GND",
+        "x": 463.5877688615969,
+        "y": 300.3919429352714
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.3",
+        "x": 202.1755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 459.3247098057624,
+          "y": 300.3919429352714
+        },
+        {
+          "x": 459.3247098057624,
+          "y": 403.52824666595836
+        },
+        {
+          "x": 239.33110943626139,
+          "y": 403.52824666595836
+        },
+        {
+          "x": 201.4742587986601,
+          "y": 439.8941455070396
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932170900",
+      "start": {
+        "componentId": "potentiometer_1790931220379_wme4a0921",
+        "pinName": "VCC",
+        "x": 483.5877688615969,
+        "y": 300.3919429352714
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 183.1755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 479.3247098057624,
+          "y": 300.3919429352714
+        },
+        {
+          "x": 479.3247098057624,
+          "y": 362.15181624861924
+        },
+        {
+          "x": 220.33110943626139,
+          "y": 362.15181624861924
+        },
+        {
+          "x": 182.4742587986601,
+          "y": 409.91193743525054
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932237566",
+      "start": {
+        "componentId": "photoresistor_sensor_1790931252551_810kovkmo",
+        "pinName": "VCC",
+        "x": 390.4742775772915,
+        "y": 274.3185757897535
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 183.1755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 391.9914872122825,
+          "y": 376.1777248646664
+        },
+        {
+          "x": 182.4742587986601,
+          "y": 376.1777248646664
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932302973",
+      "start": {
+        "componentId": "photoresistor_sensor_1790931252551_810kovkmo",
+        "pinName": "GND",
+        "x": 380.4742775772915,
+        "y": 274.3185757897535
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.3",
+        "x": 202.1755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 375.89287731282957,
+          "y": 274.3185757897535
+        },
+        {
+          "x": 375.89287731282957,
+          "y": 418.2554507128079
+        },
+        {
+          "x": 201.4742587986601,
+          "y": 418.2554507128079
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932322355",
+      "start": {
+        "componentId": "photoresistor_sensor_1790931252551_810kovkmo",
+        "pinName": "AO",
+        "x": 360.9742775772915,
+        "y": 274.3185757897535
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "A1",
+        "x": 240.6755542294625,
+        "y": 325.2581278568856
+      },
+      "waypoints": [
+        {
+          "x": 362.4914872122825,
+          "y": 348.5147291172145
+        },
+        {
+          "x": 239.9742587986601,
+          "y": 348.5147291172145
+        },
+        {
+          "x": 240.6755542294625,
+          "y": 341.1129533245485
+        }
+      ],
+      "color": "#8B00FF",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932442350",
+      "start": {
+        "componentId": "resistor_220_1790932417786_tk6mc00nl",
+        "pinName": "2",
+        "x": 205.7005141582685,
+        "y": 102.74769636604964
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "8",
+        "x": 196.1755542294625,
+        "y": 142.75812785688564
+      },
+      "waypoints": [
+        {
+          "x": 196.1755542294625,
+          "y": 102.74769636604964
+        }
+      ],
+      "color": "#FF8C00",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932742181",
+      "start": {
+        "componentId": "led_1790932376738_6p45w4sxy",
+        "pinName": "C",
+        "x": 292.28806581736217,
+        "y": 84.86643829608724
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 138.6755542294625,
+        "y": 142.75812785688564
+      },
+      "waypoints": [
+        {
+          "x": 292.28806581736217,
+          "y": 122.45363545985185
+        },
+        {
+          "x": 138.6755542294625,
+          "y": 122.45363545985185
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790932750396",
+      "start": {
+        "componentId": "led_1790932376738_6p45w4sxy",
+        "pinName": "A",
+        "x": 302.28806581736217,
+        "y": 84.86643829608724
+      },
+      "end": {
+        "componentId": "resistor_220_1790932417786_tk6mc00nl",
+        "pinName": "1",
+        "x": 264.5005141582685,
+        "y": 102.74769636604964
+      },
+      "waypoints": [
+        {
+          "x": 302.28806581736217,
+          "y": 102.74769636604964
+        }
+      ],
+      "color": "#FF8C00",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

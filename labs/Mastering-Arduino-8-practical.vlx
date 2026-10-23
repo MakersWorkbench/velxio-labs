@@ -1,0 +1,123 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-02T07:58:56.982Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 29.070240956586417,
+      "y": 165.71203366545475,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 117647
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "const uint8_t PULSE_OUTPUT_PIN = 9;         // D9 generates the hardware PWM test signal.\nconst uint8_t PULSE_INPUT_PIN = 2;          // D2 receives the signal and owns the external interrupt.\nconst uint8_t WORKLOAD_BUTTON_PIN = 4;      // Hold this INPUT_PULLUP button to enable the test workload.\nconst uint8_t STATUS_LED_PIN = LED_BUILTIN; // The built-in LED provides a visible heartbeat.\n\nconst unsigned long REPORT_MS = 1000;       // Compare both counters once per second.\nconst unsigned long HEARTBEAT_MS = 250;     // Toggle the status LED four times per second.\nconst unsigned long WORKLOAD_US = 6000;     // Deliberately keep loop() busy for 6 ms per pass while held.\n\nvolatile uint32_t interruptEdges = 0; // ISR-owned count; volatile forces normal code to reread memory.\nuint32_t polledEdges = 0;             // loop()-owned count; no volatile needed because the ISR never changes it.\nbool lastSignalState = LOW;           // Previous polled sample, used to find LOW-to-HIGH transitions.\n\nunsigned long lastReportTime = 0;    // Start time of the current reporting window.\nunsigned long lastHeartbeatTime = 0; // Last time the built-in LED changed state.\nbool heartbeatState = LOW;           // Current built-in LED state.\n\nvoid setup() {\n  pinMode(PULSE_OUTPUT_PIN, OUTPUT);         // Make D9 a signal output.\n  pinMode(PULSE_INPUT_PIN, INPUT);           // Make D2 a signal input driven by D9.\n  pinMode(WORKLOAD_BUTTON_PIN, INPUT_PULLUP); // Pressing the D4 button connects the pin to GND.\n  pinMode(STATUS_LED_PIN, OUTPUT);           // Let the sketch control the built-in LED.\n\n  analogWrite(PULSE_OUTPUT_PIN, 128); // Start a roughly 490 Hz, 50 percent duty-cycle PWM wave on D9.\n  attachInterrupt(digitalPinToInterrupt(PULSE_INPUT_PIN), countPulseISR, RISING); // Count every rising edge on D2.\n\n  Serial.begin(115200); // Open the Serial Monitor connection.\n  Serial.println(F(\"Part 8 pulse monitor. Hold the D4 button to add workload.\")); // Print the boot banner.\n}\n\nvoid loop() {\n  samplePulseByPolling(); // Give polling one brief look at the signal during this loop pass.\n\n  bool workloadActive = digitalRead(WORKLOAD_BUTTON_PIN) == LOW; // A slow held button is safe to poll.\n  if (workloadActive) {                                          // Add load only while the button is held.\n    runSyntheticWorkload();                                      // Create a repeatable gap in polling coverage.\n  }\n\n  unsigned long now = millis();       // Read the clock after any workload has finished.\n  updateHeartbeat(now);               // Keep a separate visible task running without delay().\n  reportCounts(now, workloadActive);  // Compare the two counting methods once per second.\n}\n\nvoid samplePulseByPolling() {\n  bool signalState = digitalRead(PULSE_INPUT_PIN); // Take one snapshot of the fast D2 signal.\n  if (signalState == HIGH && lastSignalState == LOW) { // Count only a sampled LOW-to-HIGH transition.\n    polledEdges++;                                     // Record the edge that polling happened to catch.\n  }\n  lastSignalState = signalState; // Save this sample for the next edge comparison.\n}\n\nvoid countPulseISR() {\n  interruptEdges++; // Record the event quickly; all reporting stays in normal loop() code.\n}\n\nvoid runSyntheticWorkload() {\n  unsigned long startedAt = micros(); // Mark the beginning of the deliberate busy interval.\n  volatile uint16_t scratch = 1;      // Volatile prevents the compiler from deleting the fake calculation.\n\n  while (micros() - startedAt < WORKLOAD_US) { // Stay busy long enough for several PWM edges to pass unseen by polling.\n    scratch = (scratch * 33U) + 17U;            // Stand in for a slow display, calculation, or sensor routine.\n  }\n}\n\nvoid updateHeartbeat(unsigned long now) {\n  if (now - lastHeartbeatTime >= HEARTBEAT_MS) { // The heartbeat interval has elapsed.\n    lastHeartbeatTime = now;                     // Start timing the next heartbeat interval.\n    heartbeatState = !heartbeatState;            // Flip the remembered LED state.\n    digitalWrite(STATUS_LED_PIN, heartbeatState); // Show the new state on the built-in LED.\n  }\n}\n\nvoid reportCounts(unsigned long now, bool workloadActive) {\n  unsigned long elapsedMs = now - lastReportTime; // Measure the real window length for rate calculation.\n  if (elapsedMs < REPORT_MS) {                    // Leave before touching shared data if the window is not ready.\n    return;\n  }\n\n  noInterrupts();                          // Pause ISRs for the shortest practical critical section.\n  uint32_t interruptSnapshot = interruptEdges; // Copy all four bytes without an ISR changing them midway.\n  interruptEdges = 0;                      // Reset the ISR-owned count for the next window.\n  interrupts();                            // Restore normal interrupt handling before any Serial output.\n\n  uint32_t pollingSnapshot = polledEdges; // Copy the loop-owned count; no interrupt lock is needed.\n  polledEdges = 0;                        // Reset the polling count for the next window.\n\n  uint32_t interruptRate = (interruptSnapshot * 1000UL) / elapsedMs; // Normalize the ISR count to edges per second.\n  uint32_t pollingRate = (pollingSnapshot * 1000UL) / elapsedMs;     // Normalize the polled count the same way.\n\n  Serial.print(F(\"IRQ: \"));               // Label the interrupt-driven rate.\n  Serial.print(interruptRate);             // Print interrupt-captured rising edges per second.\n  Serial.print(F(\"/s  POLL: \"));          // Label the polling rate.\n  Serial.print(pollingRate);               // Print polling-captured rising edges per second.\n  Serial.print(F(\"/s  LOAD: \"));          // Label the workload state.\n  Serial.println(workloadActive ? F(\"ON\") : F(\"OFF\")); // Finish the compact report line.\n\n  lastReportTime = now; // Begin the next measurement window from this report.\n}"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "pushbutton_1790927511325_547ntxzb9",
+      "metadataId": "pushbutton",
+      "x": 312.95621970039014,
+      "y": 60.44432996720232,
+      "properties": {
+        "color": "red",
+        "pressed": false,
+        "label": "",
+        "xray": false
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "wire-1790927541723",
+      "start": {
+        "componentId": "arduino-uno",
+        "pinName": "9",
+        "x": 192.07024095658642,
+        "y": 174.71203366545475
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "2",
+        "x": 265.5702409565864,
+        "y": 174.71203366545475
+      },
+      "waypoints": [
+        {
+          "x": 192.07024095658642,
+          "y": 125.85411162885221
+        },
+        {
+          "x": 265.5702409565864,
+          "y": 125.85411162885221
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790927568806",
+      "start": {
+        "componentId": "arduino-uno",
+        "pinName": "4",
+        "x": 246.57024095658642,
+        "y": 174.71203366545475
+      },
+      "end": {
+        "componentId": "pushbutton_1790927511325_547ntxzb9",
+        "pinName": "2.r",
+        "x": 385.95621970039014,
+        "y": 98.44432996720232
+      },
+      "waypoints": [
+        {
+          "x": 246.57024095658642,
+          "y": 140.25130228571402
+        },
+        {
+          "x": 395.356703900676,
+          "y": 140.25130228571402
+        },
+        {
+          "x": 395.356703900676,
+          "y": 98.44432996720232
+        }
+      ],
+      "color": "#FF8C00",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790927589042",
+      "start": {
+        "componentId": "pushbutton_1790927511325_547ntxzb9",
+        "pinName": "1.l",
+        "x": 318.95621970039014,
+        "y": 79.44432996720232
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 144.57024095658642,
+        "y": 174.71203366545475
+      },
+      "waypoints": [
+        {
+          "x": 144.57024095658642,
+          "y": 79.44432996720232
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": true
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

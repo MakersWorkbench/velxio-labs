@@ -1,0 +1,271 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-02T10:05:56.799Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 47.314705437739605,
+      "y": 242.32104287864644,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 9600,
+      "libraries": [
+        "LiquidCrystal_I2C",
+        "DHT sensor library"
+      ]
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <Wire.h>\n#include <LiquidCrystal_I2C.h>\n#include <DHT.h>\n\n// Pin and sensor type definitions\n#define DHTPIN 2      // Digital pin connected to the DHT sensor\n#define DHTTYPE DHT22 // DHT 22 (AM2302)\n\n// Initialize DHT sensor\nDHT dht(DHTPIN, DHTTYPE);\n\n// Initialize LCD — address may vary depending on your I2C module\n// Common addresses are 0x27 and 0x3F\nLiquidCrystal_I2C lcd(0x27, 16, 2);\n\n// Timing variables (all in milliseconds)\nunsigned long previousReadTime = 0;\nconst long readInterval = 10000; // Read sensor every 10 seconds\n\nvoid setup() {\n    Serial.begin(9600);\n    Serial.println(F(\"DHT22 Temperature & Humidity Monitor with LCD\"));\n\n    dht.begin();\n    Wire.begin();\n\n    lcd.init();\n    lcd.backlight();\n\n    lcd.setCursor(0, 0);\n    lcd.print(\"Temp & Humidity\");\n    lcd.setCursor(0, 1);\n    lcd.print(\"Monitor v1.0\");\n    delay(2000);\n    lcd.clear();\n}\n\nvoid loop() {\n    unsigned long currentMillis = millis();\n    if (currentMillis - previousReadTime >= readInterval) {\n        previousReadTime = currentMillis;\n        readSensor();\n    }\n}\n\nvoid readSensor() {\n    float humidity     = dht.readHumidity();\n    float temperatureC = dht.readTemperature();\n    float temperatureF = convertCtoF(temperatureC);\n\n    if (isnan(humidity) || isnan(temperatureC)) {\n        Serial.println(F(\"Failed to read from DHT sensor!\"));\n        lcd.clear();\n        lcd.setCursor(0, 0);\n        lcd.print(\"Sensor Error!\");\n        return;\n    }\n\n    Serial.print(F(\"Humidity: \"));\n    Serial.print(humidity);\n    Serial.print(F(\"% | \"));\n    Serial.print(F(\"Temperature: \"));\n    Serial.print(temperatureC);\n    Serial.print(F(\"°C / \"));\n    Serial.print(temperatureF);\n    Serial.println(F(\"°F\"));\n\n    updateLCD(temperatureC, temperatureF, humidity);\n}\n\n// Convert Celsius to Fahrenheit\nfloat convertCtoF(float celsius) {\n    return celsius * 9.0 / 5.0 + 32.0;\n}\n\n// Update the LCD display\nvoid updateLCD(float tempC, float tempF, float humidity) {\n    lcd.clear();\n\n    lcd.setCursor(0, 0);\n    lcd.print(tempC, 1);\n    lcd.print((char)223); // Degree symbol\n    lcd.print(\"C \");\n    lcd.print(tempF, 1);\n    lcd.print((char)223);\n    lcd.print(\"F\");  // e.g. \"23.5°C 74.3°F\" fits 16 columns\n\n    lcd.setCursor(0, 1);\n    lcd.print(\"RH \");\n    lcd.print(humidity, 1);\n    lcd.print(\"%\");\n}"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "dht22_1790935034447_li6m9wz8t",
+      "metadataId": "dht22",
+      "x": 348.1006768519753,
+      "y": 81,
+      "properties": {}
+    },
+    {
+      "id": "lcd1602_i2c_1790935125079_93osvo10k",
+      "metadataId": "lcd1602-i2c",
+      "x": 23.379538416398475,
+      "y": 40.28938614869239,
+      "properties": {
+        "i2cAddress": "0x27",
+        "pins": "i2c",
+        "background": "green",
+        "color": "black",
+        "backlight": true
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "wire-1790935075289",
+      "start": {
+        "componentId": "dht22_1790935034447_li6m9wz8t",
+        "pinName": "GND",
+        "x": 397.90067685197533,
+        "y": 201.9
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.3",
+        "x": 226.3147054377396,
+        "y": 433.82104287864644
+      },
+      "waypoints": [
+        {
+          "x": 397.90067685197533,
+          "y": 470.29278537690175
+        },
+        {
+          "x": 226.3147054377396,
+          "y": 470.29278537690175
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935106050",
+      "start": {
+        "componentId": "dht22_1790935034447_li6m9wz8t",
+        "pinName": "SDA",
+        "x": 378.6006768519753,
+        "y": 201.9
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "2",
+        "x": 283.8147054377396,
+        "y": 251.32104287864644
+      },
+      "waypoints": [
+        {
+          "x": 378.6006768519753,
+          "y": 251.77141089203533
+        },
+        {
+          "x": 350.1816956537635,
+          "y": 251.77141089203533
+        },
+        {
+          "x": 350.1816956537635,
+          "y": 223.95748325621494
+        },
+        {
+          "x": 283.8147054377396,
+          "y": 223.95748325621494
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935217883",
+      "start": {
+        "componentId": "dht22_1790935034447_li6m9wz8t",
+        "pinName": "VCC",
+        "x": 369.1006768519753,
+        "y": 201.9
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 207.3147054377396,
+        "y": 433.82104287864644
+      },
+      "waypoints": [
+        {
+          "x": 369.1006768519753,
+          "y": 460.18638261253454
+        },
+        {
+          "x": 207.3147054377396,
+          "y": 460.18638261253454
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935261170",
+      "start": {
+        "componentId": "lcd1602_i2c_1790935125079_93osvo10k",
+        "pinName": "VCC",
+        "x": 33.379538416398475,
+        "y": 87.78938614869239
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 207.3147054377396,
+        "y": 433.82104287864644
+      },
+      "waypoints": [
+        {
+          "x": -17.691881421183076,
+          "y": 87.78938614869239
+        },
+        {
+          "x": -17.691881421183076,
+          "y": 460.18638261253454
+        },
+        {
+          "x": 207.3147054377396,
+          "y": 460.18638261253454
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935277514",
+      "start": {
+        "componentId": "lcd1602_i2c_1790935125079_93osvo10k",
+        "pinName": "GND",
+        "x": 33.379538416398475,
+        "y": 78.28938614869239
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 162.8147054377396,
+        "y": 251.32104287864644
+      },
+      "waypoints": [
+        {
+          "x": -32.72418779129481,
+          "y": 78.28938614869239
+        },
+        {
+          "x": -32.72418779129481,
+          "y": 227.9517092155504
+        },
+        {
+          "x": 162.8147054377396,
+          "y": 227.9517092155504
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935308586",
+      "start": {
+        "componentId": "lcd1602_i2c_1790935125079_93osvo10k",
+        "pinName": "SDA",
+        "x": 33.379538416398475,
+        "y": 97.28938614869239
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "A4",
+        "x": 293.3147054377396,
+        "y": 433.82104287864644
+      },
+      "waypoints": [
+        {
+          "x": -5.698184677270211,
+          "y": 97.28938614869239
+        },
+        {
+          "x": -5.698184677270211,
+          "y": 490.57569835607296
+        },
+        {
+          "x": 288.6615770996674,
+          "y": 490.57569835607296
+        },
+        {
+          "x": 288.6615770996674,
+          "y": 433.82104287864644
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790935326702",
+      "start": {
+        "componentId": "lcd1602_i2c_1790935125079_93osvo10k",
+        "pinName": "SCL",
+        "x": 33.379538416398475,
+        "y": 106.78938614869239
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "A5",
+        "x": 302.8147054377396,
+        "y": 433.82104287864644
+      },
+      "waypoints": [
+        {
+          "x": 15.305037675119044,
+          "y": 106.78938614869239
+        },
+        {
+          "x": 15.305037675119044,
+          "y": 500.3916588553007
+        },
+        {
+          "x": 302.8147054377396,
+          "y": 500.3916588553007
+        }
+      ],
+      "color": "#0000cc",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

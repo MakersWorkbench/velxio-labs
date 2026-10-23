@@ -1,0 +1,28 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-15T12:00:00.000Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 200,
+      "y": 50,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "// Mastering ESP32 Part 1: the ESP32 chip report.\n// Asks the ESP32 to describe itself, then repeats the report every 5 seconds.\n\nconst unsigned long REPORT_INTERVAL_MS = 5000;   // how often to print the report: 5,000 ms is 5 seconds\nunsigned long lastReport = 0;                    // when the last report was printed (in milliseconds since startup)\n\nvoid printChipReport() {\n  Serial.println();\n  Serial.println(\"===== ESP32 chip report =====\");\n\n  Serial.print(\"Chip model: \");\n  Serial.println(ESP.getChipModel());            // the chip's name, for example \"ESP32-D0WD-V3\"\n\n  Serial.print(\"Chip revision: \");\n  Serial.println(ESP.getChipRevision());         // which manufacturing revision of the silicon this is\n\n  Serial.print(\"Processor cores: \");\n  Serial.println(ESP.getChipCores());            // 2 on the original ESP32\n\n  Serial.print(\"CPU speed: \");\n  Serial.print(ESP.getCpuFreqMHz());             // current clock speed in MHz, usually 240\n  Serial.println(\" MHz\");\n\n  Serial.print(\"Flash memory: \");\n  Serial.print(ESP.getFlashChipSize() / 1024);   // flash size in bytes, divided by 1024 to show kilobytes\n  Serial.println(\" KB\");\n\n  Serial.print(\"Free working memory (heap): \");\n  Serial.print(ESP.getFreeHeap() / 1024);        // SRAM still available for your program, in kilobytes\n  Serial.println(\" KB\");\n\n  uint64_t mac = ESP.getEfuseMac();              // the chip's unique 48-bit hardware address, stored in the chip at the factory\n  Serial.print(\"Factory MAC address: \");\n  for (int i = 0; i < 6; i++) {                  // a MAC address has six bytes; print each one in turn\n    uint8_t part = (mac >> (8 * i)) & 0xFF;      // slide the wanted byte to the right end, then keep only those 8 bits\n    if (part < 0x10) {                           // add a leading zero so every byte prints as two digits\n      Serial.print(\"0\");\n    }\n    Serial.print(part, HEX);                     // print the byte in hexadecimal (base 16), the usual way to write MAC addresses\n    if (i < 5) {                                 // put a colon between bytes, but not after the last one\n      Serial.print(\":\");\n    }\n  }\n  Serial.println();\n\n  Serial.print(\"Running for: \");\n  Serial.print(millis() / 1000);                 // millis() counts milliseconds since startup; divide by 1000 for seconds\n  Serial.println(\" seconds\");\n}\n\nvoid setup() {\n  Serial.begin(115200);                          // open the serial connection at 115200 baud, the usual ESP32 speed\n  printChipReport();                             // print one report right away at startup\n}\n\nvoid loop() {\n  unsigned long now = millis();\n  if (now - lastReport >= REPORT_INTERVAL_MS) {  // has it been 5 seconds since the last report?\n    lastReport = now;                            // remember when this report happened\n    printChipReport();\n  }\n}\n"
+      }
+    ]
+  },
+  "components": [],
+  "wires": [],
+  "activeBoardId": "esp32-devkit-c-v4"
+}

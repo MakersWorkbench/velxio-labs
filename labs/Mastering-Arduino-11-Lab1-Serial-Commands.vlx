@@ -1,0 +1,28 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-15T12:00:00.000Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 40,
+      "y": 60,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "const uint8_t LED_PIN = LED_BUILTIN;            // the Uno's onboard LED, pin 13\nconst uint8_t MAX_LINE = 32;                    // longest command we'll accept, in characters\n\nchar lineBuffer[MAX_LINE + 1];                  // room for the command plus the '\\0' that ends a C string (Part 5)\nuint8_t lineLength = 0;                         // how many characters are stored in lineBuffer so far\n\nvoid setup() {\n  Serial.begin(115200);\n  pinMode(LED_PIN, OUTPUT);\n  Serial.println(F(\"Type ON or OFF and press Send (line ending: New Line).\"));\n}\n\nvoid handleCommand(const char *command) {\n  if (strcmp(command, \"ON\") == 0) {             // strcmp() returns 0 when the two strings match exactly\n    digitalWrite(LED_PIN, HIGH);\n    Serial.println(F(\"LED is on\"));\n  } else if (strcmp(command, \"OFF\") == 0) {     // second command we understand\n    digitalWrite(LED_PIN, LOW);\n    Serial.println(F(\"LED is off\"));\n  } else {                                      // anything else is unknown, so say so instead of silently ignoring it\n    Serial.print(F(\"Unknown command: \"));\n    Serial.println(command);\n  }\n}\n\nvoid loop() {\n  while (Serial.available() > 0) {              // handle every byte that's already waiting, then move on\n    char c = Serial.read();                     // take the oldest byte out of the buffer\n    if (c == '\\r') {                            // ignore carriage returns, in case the Monitor sends them\n      continue;\n    }\n    if (c == '\\n') {                            // newline: the command is complete\n      lineBuffer[lineLength] = '\\0';            // end the string so strcmp() knows where it stops\n      handleCommand(lineBuffer);\n      lineLength = 0;                           // empty the buffer for the next command\n    } else if (lineLength < MAX_LINE) {         // only store the character if there's room for it\n      lineBuffer[lineLength] = c;\n      lineLength++;\n    }\n  }\n  // anything else your sketch does would go here, and it never waits on the Serial Monitor\n}\n"
+      }
+    ]
+  },
+  "components": [],
+  "wires": [],
+  "activeBoardId": "arduino-uno"
+}

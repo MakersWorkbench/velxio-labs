@@ -1,0 +1,387 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-02T08:51:09.176Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 129.00591012674138,
+      "y": 212.62049834420938,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 117647
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "const uint8_t ENCODER_A_PIN = 2;  // CLK (terminal A)\nconst uint8_t ENCODER_B_PIN = 3;  // DT (terminal B)\nconst uint8_t RESET_BUTTON_PIN = 4;  // SW on a module; on a bare encoder either button terminal works, with the other to GND\nconst uint8_t CLOCKWISE_LED_PIN = 8;  // lit by the most recent clockwise movement\nconst uint8_t COUNTERCLOCKWISE_LED_PIN = 9;  // lit by the most recent counterclockwise movement\n\nconst int8_t COUNTS_PER_DETENT = 4;  // 4 counts per click when decoding every edge; measure yours (Exercise 4)\nconst unsigned long DEBOUNCE_MS = 25;  // long enough to ride out switch bounce\nconst unsigned long REPORT_INTERVAL_MS = 50;  // caps Serial at 20 lines per second so printing can't crowd out loop()\n\nconst int8_t TRANSITION_TABLE[16] = {\n   0, -1, +1,  0,  // from 00: 01 reverse, 10 forward, 11 illegal\n  +1,  0,  0, -1,  // from 01: 00 forward, 11 reverse, 10 illegal\n  -1,  0,  0, +1,  // from 10: 00 reverse, 11 forward, 01 illegal\n   0, +1, -1,  0  // from 11: 01 forward, 10 reverse, 00 illegal\n};\n\nvolatile int32_t rawPosition = 0;  // volatile: the ISR writes these, loop() reads them\nvolatile uint16_t invalidTransitions = 0;\nvolatile uint8_t previousEncoderState = 0;\nvolatile int8_t lastDirection = 0;\n\nbool lastButtonReading = HIGH;\nbool stableButtonState = HIGH;  // the debounced state, used for the reset action\nunsigned long buttonChangedAt = 0;\nunsigned long lastReportAt = 0;\nint32_t lastReportedRawPosition = 0;\nuint16_t lastReportedInvalidCount = 0;\nbool forceReport = true;  // print once at startup and after a reset, even if nothing moved\n\nuint8_t readEncoderState() {\n  uint8_t aState = digitalRead(ENCODER_A_PIN);\n  uint8_t bState = digitalRead(ENCODER_B_PIN);\n  return (aState << 1) | bState;  // A in bit 1, B in bit 0\n}\n\nvoid setup() {\n  pinMode(ENCODER_A_PIN, INPUT_PULLUP);  // the encoder only ever connects to GND, so the pins need pull-ups\n  pinMode(ENCODER_B_PIN, INPUT_PULLUP);\n  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);  // pressing the shaft connects D4 to GND\n  pinMode(CLOCKWISE_LED_PIN, OUTPUT);\n  pinMode(COUNTERCLOCKWISE_LED_PIN, OUTPUT);\n  digitalWrite(CLOCKWISE_LED_PIN, LOW);\n  digitalWrite(COUNTERCLOCKWISE_LED_PIN, LOW);\n\n  previousEncoderState = readEncoderState();  // read the starting state before interrupts can fire\n  attachInterrupt(digitalPinToInterrupt(ENCODER_A_PIN), updateEncoderISR, CHANGE);  // CHANGE on both pins, because the table needs every edge\n  attachInterrupt(digitalPinToInterrupt(ENCODER_B_PIN), updateEncoderISR, CHANGE);\n\n  Serial.begin(115200);\n  Serial.println(F(\"Part 9 position and direction dial.\"));\n  Serial.println(F(\"Output: raw transitions | normalized detents | direction | illegal jumps\"));\n}\n\nvoid loop() {\n  unsigned long now = millis();\n  updateResetButton(now);  // debounce in loop(): a button is slow, and ISRs should stay tiny\n  reportEncoderState(now);\n}\n\nvoid updateResetButton(unsigned long now) {\n  bool buttonReading = digitalRead(RESET_BUTTON_PIN);\n\n  if (buttonReading != lastButtonReading) {  // any raw change restarts the stable-time clock\n    lastButtonReading = buttonReading;\n    buttonChangedAt = now;\n  }\n\n  if (now - buttonChangedAt >= DEBOUNCE_MS && buttonReading != stableButtonState) {\n    stableButtonState = buttonReading;\n\n    if (stableButtonState == LOW) {  // reset on the press, not the release\n      resetPosition();\n    }\n  }\n}\n\nvoid resetPosition() {\n  noInterrupts();  // stop the ISR from changing these while they're cleared\n  rawPosition = 0;\n  invalidTransitions = 0;\n  lastDirection = 0;  // zero direction turns both LEDs off\n  interrupts();\n\n  forceReport = true;  // redraw the output even though nothing moved\n}\n\nvoid reportEncoderState(unsigned long now) {\n  if (now - lastReportAt < REPORT_INTERVAL_MS) {  // rate limit, so Serial output can't crowd out loop()\n    return;\n  }\n  lastReportAt = now;\n\n  noInterrupts();  // copy the multi-byte values with interrupts off\n  int32_t rawSnapshot = rawPosition;\n  uint16_t invalidSnapshot = invalidTransitions;\n  int8_t directionSnapshot = lastDirection;\n  interrupts();  // back on before the LEDs and Serial, which are slow\n\n  digitalWrite(CLOCKWISE_LED_PIN, directionSnapshot > 0 ? HIGH : LOW);\n  digitalWrite(COUNTERCLOCKWISE_LED_PIN, directionSnapshot < 0 ? HIGH : LOW);\n\n  bool positionChanged = rawSnapshot != lastReportedRawPosition;\n  bool diagnosticChanged = invalidSnapshot != lastReportedInvalidCount;\n  if (!forceReport && !positionChanged && !diagnosticChanged) {  // an idle dial prints nothing, so the monitor stays readable\n    return;\n  }\n\n  int32_t detentPosition = rawSnapshot / COUNTS_PER_DETENT;  // raw counts divided by counts per click gives detents\n  Serial.print(F(\"Raw: \"));\n  Serial.print(rawSnapshot);\n  Serial.print(F(\" | Detents: \"));\n  Serial.print(detentPosition);\n  Serial.print(F(\" | Direction: \"));\n\n  if (directionSnapshot > 0) {  // positive means clockwise on this wiring\n    Serial.print(F(\"CW\"));\n  }\n  else if (directionSnapshot < 0) {\n    Serial.print(F(\"CCW\"));\n  }\n  else {\n    Serial.print(F(\"none\"));\n  }\n\n  Serial.print(F(\" | Illegal jumps: \"));\n  Serial.println(invalidSnapshot);\n\n  lastReportedRawPosition = rawSnapshot;\n  lastReportedInvalidCount = invalidSnapshot;\n  forceReport = false;\n}\n\nvoid updateEncoderISR() {\n  uint8_t currentState = readEncoderState();\n  uint8_t tableIndex = (previousEncoderState << 2) | currentState;  // previous state in the high bits, current in the low bits\n  int8_t movement = TRANSITION_TABLE[tableIndex];\n\n  if (movement != 0) {\n    rawPosition += movement;\n    lastDirection = movement;\n  }\n  else if (currentState != previousEncoderState) {  // state changed but the table says 0: a two-bit jump, usually bounce or a missed edge\n    invalidTransitions++;\n  }\n\n  previousEncoderState = currentState;  // always resync, even after an illegal jump, so one glitch can't derail every later lookup\n}"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "ky_040_1790928349287_cidsjhapt",
+      "metadataId": "ky-040",
+      "x": 247.575277225021,
+      "y": 48.53733638012799,
+      "properties": {
+        "angle": 0,
+        "stepSize": 18,
+        "pressed": false,
+        "rotation": 90
+      }
+    },
+    {
+      "id": "led_1790930365905_uanpnlyh2",
+      "metadataId": "led",
+      "x": 200.96871833098058,
+      "y": 41.908095800851115,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "red",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "led_1790930368672_hcimqec0i",
+      "metadataId": "led",
+      "x": 128.69738960713255,
+      "y": 40.223004139749435,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "red",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "resistor_220_1790930374902_ivzn7g1zd",
+      "metadataId": "resistor-220",
+      "x": 123.08049509140253,
+      "y": 131.82673036958008,
+      "properties": {
+        "value": "220",
+        "rotation": 180
+      }
+    },
+    {
+      "id": "resistor_220_1790930377677_tvcxgxq74",
+      "metadataId": "resistor-220",
+      "x": 193.05960880424124,
+      "y": 82.03086127523258,
+      "properties": {
+        "value": "220",
+        "rotation": 180
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 366.675277225021,
+          "y": 221.62049834420938
+        }
+      ],
+      "id": "wire-1790930225275",
+      "start": {
+        "componentId": "ky_040_1790928349287_cidsjhapt",
+        "pinName": "CLK",
+        "x": 366.675277225021,
+        "y": 152.53733638012798
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "2",
+        "x": 365.50591012674136,
+        "y": 221.62049834420938
+      },
+      "color": "#22c55e",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 357.175277225021,
+          "y": 221.62049834420938
+        }
+      ],
+      "id": "wire-1790930237943",
+      "start": {
+        "componentId": "ky_040_1790928349287_cidsjhapt",
+        "pinName": "DT",
+        "x": 357.175277225021,
+        "y": 152.53733638012798
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "3",
+        "x": 356.00591012674136,
+        "y": 221.62049834420938
+      },
+      "color": "#FF8C00",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 329.07527722502107,
+          "y": 190.20735733326066
+        },
+        {
+          "x": 244.50591012674138,
+          "y": 190.20735733326066
+        }
+      ],
+      "id": "wire-1790930259444",
+      "start": {
+        "componentId": "ky_040_1790928349287_cidsjhapt",
+        "pinName": "GND",
+        "x": 329.075277225021,
+        "y": 152.53733638012798
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 244.50591012674138,
+        "y": 221.62049834420938
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 338.1067462945803,
+          "y": 130.2391717000454
+        },
+        {
+          "x": 338.1067462945803,
+          "y": 190.20735733326066
+        },
+        {
+          "x": 436.5480612753849,
+          "y": 190.20735733326066
+        },
+        {
+          "x": 436.5480612753849,
+          "y": 430.25945373726853
+        },
+        {
+          "x": 288.55685404436844,
+          "y": 430.25945373726853
+        },
+        {
+          "x": 288.55685404436844,
+          "y": 404.1204983442094
+        }
+      ],
+      "id": "wire-1790930288432",
+      "start": {
+        "componentId": "ky_040_1790928349287_cidsjhapt",
+        "pinName": "VCC",
+        "x": 338.275277225021,
+        "y": 152.53733638012798
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 289.00591012674136,
+        "y": 404.1204983442094
+      },
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 347.575277225021,
+          "y": 221.62049834420938
+        }
+      ],
+      "id": "wire-1790930313684",
+      "start": {
+        "componentId": "ky_040_1790928349287_cidsjhapt",
+        "pinName": "SW",
+        "x": 347.575277225021,
+        "y": 152.53733638012798
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "4",
+        "x": 346.50591012674136,
+        "y": 221.62049834420938
+      },
+      "color": "#0000cc",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 302.08631343141775,
+          "y": 110.97455080283714
+        },
+        {
+          "x": 302.08631343141775,
+          "y": 221.62049834420938
+        }
+      ],
+      "id": "wire-1790930465453",
+      "start": {
+        "componentId": "resistor_220_1790930374902_ivzn7g1zd",
+        "pinName": "1",
+        "x": 222.08049509140253,
+        "y": 170.17673036958007
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "8",
+        "x": 302.00591012674136,
+        "y": 221.62049834420938
+      },
+      "color": "#8B00FF",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 292.05960880424124,
+          "y": 221.62049834420938
+        }
+      ],
+      "id": "wire-1790930474173",
+      "start": {
+        "componentId": "resistor_220_1790930377677_tvcxgxq74",
+        "pinName": "1",
+        "x": 292.05960880424124,
+        "y": 120.38086127523258
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "9",
+        "x": 292.00591012674136,
+        "y": 221.62049834420938
+      },
+      "color": "#FFD700",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 161.67092567494106,
+          "y": 123.14994108437376
+        }
+      ],
+      "id": "wire-1790930497438",
+      "start": {
+        "componentId": "resistor_220_1790930374902_ivzn7g1zd",
+        "pinName": "2",
+        "x": 163.28049509140254,
+        "y": 170.17673036958007
+      },
+      "end": {
+        "componentId": "led_1790930368672_hcimqec0i",
+        "pinName": "A",
+        "x": 159.69738960713255,
+        "y": 88.22300413974943
+      },
+      "color": "#8B00FF",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 232.183694768097,
+          "y": 144.5535099732358
+        },
+        {
+          "x": 232.183694768097,
+          "y": 110.97455080283714
+        },
+        {
+          "x": 235.48473995978102,
+          "y": 110.97455080283714
+        }
+      ],
+      "id": "wire-1790930505018",
+      "start": {
+        "componentId": "resistor_220_1790930377677_tvcxgxq74",
+        "pinName": "2",
+        "x": 233.25960880424122,
+        "y": 120.38086127523258
+      },
+      "end": {
+        "componentId": "led_1790930365905_uanpnlyh2",
+        "pinName": "A",
+        "x": 231.96871833098058,
+        "y": 89.90809580085111
+      },
+      "color": "#FFD700",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 140.8483565357974,
+          "y": 190.20735733326066
+        },
+        {
+          "x": 244.50591012674138,
+          "y": 190.20735733326066
+        }
+      ],
+      "id": "wire-1790930535847",
+      "start": {
+        "componentId": "led_1790930368672_hcimqec0i",
+        "pinName": "C",
+        "x": 149.69738960713255,
+        "y": 88.22300413974943
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 244.50591012674138,
+        "y": 221.62049834420938
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790931037342",
+      "start": {
+        "componentId": "led_1790930365905_uanpnlyh2",
+        "pinName": "C",
+        "x": 221.96871833098058,
+        "y": 89.90809580085111
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 244.50591012674138,
+        "y": 221.62049834420938
+      },
+      "waypoints": [
+        {
+          "x": 221.96871833098058,
+          "y": 149.03726901099006
+        },
+        {
+          "x": 244.50591012674138,
+          "y": 149.03726901099006
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

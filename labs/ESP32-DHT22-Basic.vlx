@@ -1,0 +1,243 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-10T02:05:03.218Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 85.61284795527237,
+      "y": 87.77423818997232,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0,
+      "libraries": [
+        "DHT sensor library",
+        "Adafruit Unified Sensor"
+      ]
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <DHT.h>   // Adafruit's library that handles the DHT22's single-wire protocol\n\n#define DHTPIN 4        // The ESP32 GPIO pin the sensor's DATA line is connected to\n#define DHTTYPE DHT22   // Tells the library which sensor we have (the DHT22 and AM2302 are the same here)\n\nDHT dht(DHTPIN, DHTTYPE);  // Create a sensor object named \"dht\" using the pin and type above\n\nvoid setup() {\n  Serial.begin(115200);  // Start serial communication at 115200 baud (the Serial Monitor must match)\n  dht.begin();           // Start the sensor\n\n  Serial.println(\"ESP32 Environmental Monitor\");\n  Serial.println(\"---------------------------\");\n}\n\nvoid loop() {\n  delay(2000);  // The DHT22 needs about 2 seconds between readings\n\n  float humidity = dht.readHumidity();               // Relative humidity in percent\n  float temperatureC = dht.readTemperature();        // Temperature in Celsius (the default)\n  float temperatureF = dht.readTemperature(true);    // Passing true asks for Fahrenheit instead\n\n  // isnan() means \"is not a number\". The library returns NaN when a reading fails,\n  // so if any of the three failed, skip this round and try again in 2 seconds.\n  if (isnan(humidity) || isnan(temperatureC) || isnan(temperatureF)) {\n    Serial.println(\"Failed to read from DHT22 sensor!\");\n    return;  // Leave loop() early so we never use bad data\n  }\n\n  // Print the results. The second number in each print() is how many decimal places to show.\n  Serial.print(\"Temperature: \");\n  Serial.print(temperatureC, 1);\n  Serial.print(\" °C / \");\n  Serial.print(temperatureF, 1);\n  Serial.println(\" °F\");\n\n  Serial.print(\"Humidity: \");\n  Serial.print(humidity, 1);\n  Serial.println(\" %\");\n\n  Serial.println();  // Blank line to separate each set of readings\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "dht22_lab_1",
+      "metadataId": "dht22",
+      "x": 312.95142477083095,
+      "y": 63.128940849104325,
+      "properties": {}
+    },
+    {
+      "id": "resistor_10k_pullup",
+      "metadataId": "resistor-10k",
+      "x": 199.833494643959,
+      "y": 163.07002431712453,
+      "properties": {
+        "value": "10000",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "junction_1a37f0b2-5394-42b8-9aa8-d9cc51dfed42",
+      "metadataId": "junction",
+      "x": 252.83244908615814,
+      "y": 267.7742381899723,
+      "properties": {
+        "color": "#22c55e",
+        "state": false,
+        "value": false
+      }
+    },
+    {
+      "id": "junction_1008d68c-42e2-414c-bec7-c69f9ee169cd",
+      "metadataId": "junction",
+      "x": 252.83244908615814,
+      "y": 60.13863425197543,
+      "properties": {
+        "color": "#cc0000"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 362.75142477083097,
+          "y": 238.02053012295707
+        },
+        {
+          "x": 218.61284795527237,
+          "y": 238.02053012295707
+        }
+      ],
+      "id": "wire-1791900003",
+      "start": {
+        "componentId": "dht22_lab_1",
+        "pinName": "GND",
+        "x": 362.75142477083097,
+        "y": 184.02894084910434
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.3",
+        "x": 218.61284795527237,
+        "y": 201.77423818997232
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-596e2e57-76ca-4d44-a45f-22cffa51f11f",
+      "start": {
+        "componentId": "dht22_lab_1",
+        "pinName": "SDA",
+        "x": 343.45142477083095,
+        "y": 184.02894084910434
+      },
+      "end": {
+        "componentId": "junction_1a37f0b2-5394-42b8-9aa8-d9cc51dfed42",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 278.7742381899723
+      },
+      "waypoints": [
+        {
+          "x": 343.45142477083095,
+          "y": 278.7742381899723
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-8c86b9ea-26a0-411f-8953-33a87bee5b13",
+      "start": {
+        "componentId": "junction_1a37f0b2-5394-42b8-9aa8-d9cc51dfed42",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 278.7742381899723
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "4",
+        "x": 218.61284795527237,
+        "y": 278.7742381899723
+      },
+      "waypoints": [],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-8d6cde31-0897-4de8-8a48-0552a2b5aed5",
+      "start": {
+        "componentId": "resistor_10k_pullup",
+        "pinName": "2",
+        "x": 264.18349464395897,
+        "y": 201.87002431712455
+      },
+      "end": {
+        "componentId": "junction_1a37f0b2-5394-42b8-9aa8-d9cc51dfed42",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 278.7742381899723
+      },
+      "waypoints": [
+        {
+          "x": 264.183494643959,
+          "y": 278.7742381899723
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-a16224f8-00ea-4367-acf8-2ebeb006eb03",
+      "start": {
+        "componentId": "dht22_lab_1",
+        "pinName": "VCC",
+        "x": 333.95142477083095,
+        "y": 184.02894084910434
+      },
+      "end": {
+        "componentId": "junction_1008d68c-42e2-414c-bec7-c69f9ee169cd",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 71.13863425197543
+      },
+      "waypoints": [
+        {
+          "x": 333.95142477083095,
+          "y": 219.92919598396995
+        },
+        {
+          "x": 292.0109482191371,
+          "y": 219.92919598396995
+        },
+        {
+          "x": 292.0109482191371,
+          "y": 71.13863425197543
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-4f0e40e9-e5ba-4adc-a3a2-302241d1b826",
+      "start": {
+        "componentId": "junction_1008d68c-42e2-414c-bec7-c69f9ee169cd",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 71.13863425197543
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "3V3",
+        "x": 91.61284795527237,
+        "y": 125.77423818997232
+      },
+      "waypoints": [
+        {
+          "x": 64.52671161555438,
+          "y": 71.13863425197543
+        },
+        {
+          "x": 64.52671161555438,
+          "y": 125.77423818997232
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-ef9a9ba2-46f9-4659-926d-d3dc6d3ec98a",
+      "start": {
+        "componentId": "resistor_10k_pullup",
+        "pinName": "1",
+        "x": 264.18349464395897,
+        "y": 143.07002431712453
+      },
+      "end": {
+        "componentId": "junction_1008d68c-42e2-414c-bec7-c69f9ee169cd",
+        "pinName": "J",
+        "x": 263.83244908615814,
+        "y": 71.13863425197543
+      },
+      "waypoints": [
+        {
+          "x": 264.183494643959,
+          "y": 71.13863425197543
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}

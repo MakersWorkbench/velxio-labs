@@ -1,0 +1,145 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-09T21:37:43.763Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 79.0352562000532,
+      "y": 79.50702085711751,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0,
+      "libraries": [
+        "Adafruit BMP280 Library",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ]
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "// BMP280 pressure and temperature over I²C on the ESP32\n// SDA to GPIO 21, SCL to GPIO 22, VCC to 3V3, GND to GND\n\n#include <Wire.h>                          // the built-in I2C library\n#include <Adafruit_BMP280.h>               // the library that knows the BMP280's registers and math\n\nAdafruit_BMP280 bmp;                       // one object represents our sensor\n\nvoid setup() {\n  Serial.begin(115200);                    // start the Serial Monitor connection\n  Wire.begin(21, 22);                      // start I2C with SDA on 21 and SCL on 22\n  if (!bmp.begin(0x76)) {                  // look for the sensor at address 0x76 (the library assumes 0x77 otherwise)\n    Serial.println(\"BMP280 not found! Check wiring and address.\");\n    while (true) delay(10);                // stop here, there is nothing to measure\n  }\n  Serial.println(\"BMP280 ready\");\n}\n\nvoid loop() {\n  float tempC = bmp.readTemperature();     // temperature in degrees Celsius\n  float hPa = bmp.readPressure() / 100.0;  // pressure arrives in pascals, so divide by 100 for hPa\n  float altitude = bmp.readAltitude(1013.25);  // estimate height using standard sea-level pressure\n\n  Serial.printf(\"Temp: %.2f C  Pressure: %.2f hPa  Altitude: %.1f m\\n\", tempC, hPa, altitude);\n  delay(2000);                             // wait 2 seconds between readings\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "bmp280_1791700000001_i2cbmp",
+      "metadataId": "bmp280",
+      "x": 293.0004470297834,
+      "y": 223.03656302079466,
+      "properties": {
+        "temperature": "25",
+        "pressure": "1013.25"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 367.99891911248454,
+          "y": 60.92212163540437
+        },
+        {
+          "x": 61.33828575296354,
+          "y": 60.92212163540437
+        },
+        {
+          "x": 61.33828575296354,
+          "y": 117.50702085711751
+        }
+      ],
+      "id": "wire-1791700000001",
+      "start": {
+        "componentId": "bmp280_1791700000001_i2cbmp",
+        "pinName": "VCC",
+        "x": 369.5004470297834,
+        "y": 242.63656302079465
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "3V3",
+        "x": 85.0352562000532,
+        "y": 117.50702085711751
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 306.99891911248454,
+          "y": 181.5070208571175
+        }
+      ],
+      "id": "wire-1791700000002",
+      "start": {
+        "componentId": "bmp280_1791700000001_i2cbmp",
+        "pinName": "SDA",
+        "x": 308.5004470297834,
+        "y": 242.63656302079465
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "21",
+        "x": 212.0352562000532,
+        "y": 181.5070208571175
+      },
+      "color": "#3b82f6",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 328.8004470297834,
+          "y": 143.5070208571175
+        }
+      ],
+      "id": "wire-1791700000003",
+      "start": {
+        "componentId": "bmp280_1791700000001_i2cbmp",
+        "pinName": "SCL",
+        "x": 328.8004470297834,
+        "y": 242.63656302079465
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "22",
+        "x": 212.0352562000532,
+        "y": 143.5070208571175
+      },
+      "color": "#f97316",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 347.69891911248453,
+          "y": 193.5070208571175
+        }
+      ],
+      "id": "wire-1791700000004",
+      "start": {
+        "componentId": "bmp280_1791700000001_i2cbmp",
+        "pinName": "GND",
+        "x": 349.2004470297834,
+        "y": 242.63656302079465
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.3",
+        "x": 212.0352562000532,
+        "y": 193.5070208571175
+      },
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}

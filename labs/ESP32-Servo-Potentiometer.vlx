@@ -1,0 +1,254 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-09T20:01:26.776Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 217.0352415120432,
+      "y": 53.53687354432947,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0,
+      "libraries": [
+        "ESP32Servo"
+      ]
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "// Servo steered by a potentiometer on the ESP32\n// Servo PWM to GPIO 13. Potentiometer wiper to GPIO 34.\n\n#include <ESP32Servo.h>               // the library that drives servos from the ESP32's LEDC hardware\n\n#define SERVO_PIN 13                  // GPIO 13 carries the pulse signal to the servo\n#define POT_PIN   34                  // GPIO 34 reads the potentiometer (input-only ADC1 pin)\n\nServo myServo;                        // one Servo object stands for one physical servo\n\nvoid setup() {\n  Serial.begin(115200);               // start the Serial Monitor connection\n  myServo.setPeriodHertz(50);         // send 50 pulses per second, which standard servos expect\n  myServo.attach(SERVO_PIN, 500, 2400);  // pin, pulse width for 0 degrees (us), pulse width for 180 degrees (us)\n  Serial.println(\"Servo and knob ready\");\n}\n\nvoid loop() {\n  long total = 0;                     // running total for averaging\n  for (int i = 0; i < 8; i++) {       // take 8 quick readings\n    total += analogRead(POT_PIN);     // add each 0 to 4095 reading to the total\n  }\n  int raw = total / 8;                // the average smooths out ADC noise\n\n  int angle = map(raw, 0, 4095, 0, 180);  // scale 0-4095 down to 0-180 degrees\n  myServo.write(angle);               // command the servo to that angle\n\n  Serial.printf(\"Knob: %4d  Angle: %3d deg\\n\", raw, angle);  // show both numbers\n  delay(20);                          // match the servo's 20 ms pulse cycle\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "potentiometer_1791600000001_servopot",
+      "metadataId": "potentiometer",
+      "x": 20.4743663988096,
+      "y": 48.40999049877243,
+      "properties": {
+        "value": 87
+      }
+    },
+    {
+      "id": "servo_1791600000002_servo1",
+      "metadataId": "servo",
+      "x": 10.919189578311006,
+      "y": 177.4194677045599,
+      "properties": {
+        "rotation": 270
+      }
+    },
+    {
+      "id": "junction_gnd-0002-4000-8000-000000000001",
+      "metadataId": "junction",
+      "x": 330,
+      "y": 300,
+      "properties": {
+        "color": "#808080"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 83.61609313151577,
+          "y": 344.3309821411873
+        },
+        {
+          "x": 83.61609313151577,
+          "y": 368.560904529527
+        },
+        {
+          "x": 184.11224669415475,
+          "y": 368.560904529527
+        },
+        {
+          "x": 184.11224669415475,
+          "y": 320.53687354432947
+        }
+      ],
+      "id": "wire-1791600000001",
+      "start": {
+        "componentId": "servo_1791600000002_servo1",
+        "pinName": "V+",
+        "x": 84.91918957831102,
+        "y": 344.9194677045599
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "5V",
+        "x": 223.0352415120432,
+        "y": 320.53687354432947
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 92.65373288819332,
+          "y": 355.6148177164983
+        },
+        {
+          "x": 165.6178369612566,
+          "y": 355.6148177164983
+        },
+        {
+          "x": 165.6178369612566,
+          "y": 269.1534522151993
+        },
+        {
+          "x": 223.0352415120432,
+          "y": 269.1534522151993
+        }
+      ],
+      "id": "wire-1791600000002",
+      "start": {
+        "componentId": "servo_1791600000002_servo1",
+        "pinName": "PWM",
+        "x": 94.41918957831102,
+        "y": 344.9194677045599
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "13",
+        "x": 223.0352415120432,
+        "y": 269.53687354432947
+      },
+      "color": "#f97316",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 75.4743663988096,
+          "y": 139.38713842064178
+        },
+        {
+          "x": 172.77335842124674,
+          "y": 139.38713842064178
+        },
+        {
+          "x": 172.77335842124674,
+          "y": 94.04577544187468
+        }
+      ],
+      "id": "wire-1791600000004",
+      "start": {
+        "componentId": "potentiometer_1791600000001_servopot",
+        "pinName": "VCC",
+        "x": 75.4743663988096,
+        "y": 122.90999049877243
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "3V3",
+        "x": 223.0352415120432,
+        "y": 91.53687354432947
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 65.4743663988096,
+          "y": 157.22071153667693
+        },
+        {
+          "x": 178.54304384114047,
+          "y": 157.22071153667693
+        },
+        {
+          "x": 178.54304384114047,
+          "y": 145.0457754418747
+        }
+      ],
+      "id": "wire-1791600000005",
+      "start": {
+        "componentId": "potentiometer_1791600000001_servopot",
+        "pinName": "SIG",
+        "x": 65.4743663988096,
+        "y": 122.90999049877243
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "34",
+        "x": 223.0352415120432,
+        "y": 142.53687354432947
+      },
+      "color": "#a855f7",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1791575830381",
+      "start": {
+        "componentId": "potentiometer_1791600000001_servopot",
+        "pinName": "GND",
+        "x": 55.4743663988096,
+        "y": 122.90999049877243
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.1",
+        "x": 223.0352415120432,
+        "y": 256.53687354432947
+      },
+      "waypoints": [
+        {
+          "x": 55.4743663988096,
+          "y": 168.71089659316434
+        },
+        {
+          "x": 198.60120934153593,
+          "y": 168.71089659316434
+        },
+        {
+          "x": 198.60120934153593,
+          "y": 256.53687354432947
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1791575915996",
+      "start": {
+        "componentId": "servo_1791600000002_servo1",
+        "pinName": "GND",
+        "x": 75.41918957831102,
+        "y": 344.9194677045599
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.1",
+        "x": 223.0352415120432,
+        "y": 256.53687354432947
+      },
+      "waypoints": [
+        {
+          "x": 73.65373288819332,
+          "y": 380.1199106125884
+        },
+        {
+          "x": 134.63970065865212,
+          "y": 380.1199106125884
+        },
+        {
+          "x": 134.63970065865212,
+          "y": 256.53687354432947
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}

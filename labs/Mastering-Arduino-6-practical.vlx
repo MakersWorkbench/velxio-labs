@@ -1,0 +1,789 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-02T07:41:31.837Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 247.97396656671873,
+      "y": 362.73445898053103,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 117647
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "const uint8_t LED_PINS[] = {6, 7, 8, 9};                          // bar-graph array, same layout as Part 5\nconst uint8_t NUM_LEDS = sizeof(LED_PINS) / sizeof(LED_PINS[0]);  // computed length: 4\nconst uint8_t POT_PIN = A0;\n\n// Two buttons, wired two different ways. Parallel arrays instead of separate\n// variables per button, the same pattern Part 5 used for the LED chase.\nconst uint8_t BTN_PINS[] = {2, 3};                                 // D2 = increment, D3 = decrement\nconst bool BTN_ACTIVE_LOW[] = {true, false};                       // D2 is INPUT_PULLUP (pressed=LOW); D3 is external pull-down (pressed=HIGH)\nconst uint8_t NUM_BTNS = sizeof(BTN_PINS) / sizeof(BTN_PINS[0]);\n\nbool lastRawPressed[NUM_BTNS] = {false, false};       // most recent raw \"is it pressed\" reading per button, unfiltered\nbool debouncedPressed[NUM_BTNS] = {false, false};     // the reading each button's logic trusts\nunsigned long lastChangeTime[NUM_BTNS] = {0, 0};      // last time each button's raw reading changed at all\n\nuint8_t count = 0;                 // the counter this whole project exists to move reliably, clamped 0..NUM_LEDS\nunsigned long lastPotPrint = 0;    // throttles how often the debounce window gets printed to Serial\nlong lastPrintedWindow = -1;       // last debounce window value printed, so we only print on real change\n\nvoid setup() {\n  for (uint8_t i = 0; i < NUM_LEDS; i++) {\n    pinMode(LED_PINS[i], OUTPUT);  // one loop configures every LED pin, same as Part 5\n  }\n  pinMode(BTN_PINS[0], INPUT_PULLUP);  // increment button: easy way, internal pull-up\n  pinMode(BTN_PINS[1], INPUT);         // decrement button: hard way, external pull-down resistor does the work\n  Serial.begin(115200);\n  Serial.println(F(\"Part 6 debounced counter. Turn the pot, mash the buttons.\"));\n  updateBarGraph();  // draw count=0 immediately instead of waiting for the first loop() pass\n}\n\nvoid loop() {\n  unsigned long now = millis();\n  unsigned long debounceMs = readDebounceWindow(now);  // pot-controlled, re-read fresh every pass\n\n  for (uint8_t i = 0; i < NUM_BTNS; i++) {\n    // Normalize this button's raw reading into one consistent boolean, regardless of which\n    // wiring style it uses underneath. Everything below this line only ever sees \"pressed\" or not.\n    bool raw = BTN_ACTIVE_LOW[i] ? (digitalRead(BTN_PINS[i]) == LOW) : (digitalRead(BTN_PINS[i]) == HIGH);\n\n    if (raw != lastRawPressed[i]) {        // any change at all, real press or still bouncing, resets the timer\n      lastChangeTime[i] = now;\n      lastRawPressed[i] = raw;\n    }\n\n    if ((now - lastChangeTime[i]) >= debounceMs && debouncedPressed[i] != lastRawPressed[i]) {\n      debouncedPressed[i] = lastRawPressed[i];  // the reading has held steady for the whole window: trust it\n      if (debouncedPressed[i]) {                // only act on the confirmed press edge, not the release\n        if (i == 0 && count < NUM_LEDS) {\n          count++;  // guarded manually instead of subtracting/adding past the edge: count is a uint8_t,\n        }           // and it can never legitimately go negative, so we check the bound instead of\n        if (i == 1 && count > 0) {\n          count--;  // trusting the math, the same unsigned-wraparound danger Part 5 flagged for array indices\n        }\n        updateBarGraph();\n        Serial.print(F(\"count: \"));\n        Serial.println(count);\n      }\n    }\n  }\n}\n\nunsigned long readDebounceWindow(unsigned long now) {\n  int raw = analogRead(POT_PIN);                       // 0..1023 from the potentiometer wiper\n  long windowMs = map(raw, 0, 1023, 5, 150);            // deliberately wide range: 5ms is too short, 150ms is too long\n  windowMs = constrain(windowMs, 5, 150);\n  if (now - lastPotPrint >= 250 && windowMs != lastPrintedWindow) {  // print at most 4x/sec, only on real change\n    lastPotPrint = now;\n    lastPrintedWindow = windowMs;\n    Serial.print(F(\"debounce window: \"));\n    Serial.print(windowMs);\n    Serial.println(F(\"ms\"));\n  }\n  return (unsigned long)windowMs;\n}\n\nvoid updateBarGraph() {\n  for (uint8_t i = 0; i < NUM_LEDS; i++) {\n    digitalWrite(LED_PINS[i], i < count ? HIGH : LOW);  // fill LEDs 0..count-1, same array-walk pattern as Part 5\n  }\n}"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "led_1790918494602_mis4grd2h",
+      "metadataId": "led",
+      "x": 337.4082725078637,
+      "y": 144.42887376102018,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "green",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "led_1790918517479_trjcaazuj",
+      "metadataId": "led",
+      "x": 388.90462841956946,
+      "y": 142.3381212706335,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "blue",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "led_1790918523467_2i560olye",
+      "metadataId": "led",
+      "x": 440.07492746996394,
+      "y": 144.6077731463662,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "purple",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "resistor_220_1790918543409_auks75dph",
+      "metadataId": "resistor-220",
+      "x": 244.03717501270458,
+      "y": 256.8496941817815,
+      "properties": {
+        "value": "220",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "resistor_220_1790918566626_dmer28c5d",
+      "metadataId": "resistor-220",
+      "x": 297.3184783137879,
+      "y": 257.8376944293539,
+      "properties": {
+        "value": "220",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "resistor_220_1790918576353_oluxe9oz8",
+      "metadataId": "resistor-220",
+      "x": 343.4806632925842,
+      "y": 256.1637709737892,
+      "properties": {
+        "value": "220",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "resistor_220_1790918585183_h2xp0tn5p",
+      "metadataId": "resistor-220",
+      "x": 394.2242776374067,
+      "y": 258.7463530663884,
+      "properties": {
+        "value": "220",
+        "rotation": 90
+      }
+    },
+    {
+      "id": "pushbutton_1790919324588_82u7cg7cp",
+      "metadataId": "pushbutton",
+      "x": 523.0337155630264,
+      "y": 278.11739139985275,
+      "properties": {
+        "color": "red",
+        "pressed": false,
+        "label": "",
+        "xray": false
+      }
+    },
+    {
+      "id": "potentiometer_1790919461089_11m5cyfk1",
+      "metadataId": "potentiometer",
+      "x": 557.896966413862,
+      "y": 366.20328459651927,
+      "properties": {
+        "min": 0,
+        "max": 1023,
+        "value": 0,
+        "step": 1,
+        "startDegree": -135,
+        "endDegree": 135
+      }
+    },
+    {
+      "id": "led_1790918487864_zaygphvxb",
+      "metadataId": "led",
+      "x": 288.7186631227878,
+      "y": 145.14152604113224,
+      "properties": {
+        "value": false,
+        "brightness": 1,
+        "color": "red",
+        "lightColor": null,
+        "label": "",
+        "flip": false
+      }
+    },
+    {
+      "id": "pushbutton_1790924876726_nfs34audh",
+      "metadataId": "pushbutton",
+      "x": 501.1172817338005,
+      "y": 216.5563073743079,
+      "properties": {
+        "color": "red",
+        "pressed": false,
+        "label": "",
+        "xray": false
+      }
+    },
+    {
+      "id": "resistor_10k_1790924974067_i66vmw99s",
+      "metadataId": "resistor-10k",
+      "x": 443.3474845374743,
+      "y": 166.8432238556128,
+      "properties": {
+        "value": "10000",
+        "rotation": 90
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "wire-1790919389548",
+      "start": {
+        "componentId": "pushbutton_1790919324588_82u7cg7cp",
+        "pinName": "2.l",
+        "x": 529.0337155630264,
+        "y": 316.11739139985275
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "2",
+        "x": 484.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 513.6929906353604,
+          "y": 280.06490652013485
+        },
+        {
+          "x": 513.6929906353604,
+          "y": 349.21592759659296
+        },
+        {
+          "x": 484.47396656671873,
+          "y": 349.21592759659296
+        }
+      ],
+      "color": "#FF8C00",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790919425340",
+      "start": {
+        "componentId": "pushbutton_1790919324588_82u7cg7cp",
+        "pinName": "1.r",
+        "x": 596.0337155630264,
+        "y": 297.11739139985275
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 602.896966413862,
+          "y": 261.06490652013485
+        },
+        {
+          "x": 602.896966413862,
+          "y": 133.60716567445147
+        },
+        {
+          "x": 276.9522160304654,
+          "y": 133.60716567445147
+        },
+        {
+          "x": 276.9522160304654,
+          "y": 349.21592759659296
+        },
+        {
+          "x": 363.47396656671873,
+          "y": 349.21592759659296
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790919492327",
+      "start": {
+        "componentId": "potentiometer_1790919461089_11m5cyfk1",
+        "pinName": "SIG",
+        "x": 602.896966413862,
+        "y": 440.70328459651927
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "A0",
+        "x": 455.97396656671873,
+        "y": 554.234458980531
+      },
+      "waypoints": [
+        {
+          "x": 602.896966413862,
+          "y": 580.8136925695701
+        },
+        {
+          "x": 462.16722371452096,
+          "y": 580.8136925695701
+        },
+        {
+          "x": 462.16722371452096,
+          "y": 554.234458980531
+        }
+      ],
+      "color": "#FF00FF",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790919507117",
+      "start": {
+        "componentId": "potentiometer_1790919461089_11m5cyfk1",
+        "pinName": "VCC",
+        "x": 612.896966413862,
+        "y": 440.70328459651927
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 407.97396656671873,
+        "y": 554.234458980531
+      },
+      "waypoints": [
+        {
+          "x": 612.896966413862,
+          "y": 613.3495031151467
+        },
+        {
+          "x": 407.97396656671873,
+          "y": 613.3495031151467
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790919530225",
+      "start": {
+        "componentId": "potentiometer_1790919461089_11m5cyfk1",
+        "pinName": "GND",
+        "x": 592.896966413862,
+        "y": 440.70328459651927
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.3",
+        "x": 426.97396656671873,
+        "y": 554.234458980531
+      },
+      "waypoints": [
+        {
+          "x": 565.5207978958387,
+          "y": 440.70328459651927
+        },
+        {
+          "x": 565.5207978958387,
+          "y": 599.173046409414
+        },
+        {
+          "x": 426.97396656671873,
+          "y": 599.173046409414
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920075891",
+      "start": {
+        "componentId": "led_1790918487864_zaygphvxb",
+        "pinName": "C",
+        "x": 309.7186631227878,
+        "y": 193.14152604113224
+      },
+      "end": {
+        "componentId": "resistor_220_1790918543409_auks75dph",
+        "pinName": "1",
+        "x": 309.8871750127046,
+        "y": 235.34969418178153
+      },
+      "waypoints": [
+        {
+          "x": 309.7186631227878,
+          "y": 235.34969418178153
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-1790920085944",
+      "start": {
+        "componentId": "resistor_220_1790918543409_auks75dph",
+        "pinName": "2",
+        "x": 309.8871750127046,
+        "y": 294.1496941817815
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 309.8871750127046,
+          "y": 339.07492178078263
+        },
+        {
+          "x": 363.47396656671873,
+          "y": 339.07492178078263
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920100551",
+      "start": {
+        "componentId": "resistor_220_1790918566626_dmer28c5d",
+        "pinName": "2",
+        "x": 363.16847831378794,
+        "y": 295.1376944293539
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 363.47396656671873,
+          "y": 295.1376944293539
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920130920",
+      "start": {
+        "componentId": "led_1790918494602_mis4grd2h",
+        "pinName": "C",
+        "x": 358.4082725078637,
+        "y": 192.42887376102018
+      },
+      "end": {
+        "componentId": "resistor_220_1790918566626_dmer28c5d",
+        "pinName": "1",
+        "x": 363.16847831378794,
+        "y": 236.33769442935392
+      },
+      "waypoints": [
+        {
+          "x": 358.4082725078637,
+          "y": 236.33769442935392
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-1790920138111",
+      "start": {
+        "componentId": "led_1790918517479_trjcaazuj",
+        "pinName": "C",
+        "x": 409.90462841956946,
+        "y": 190.3381212706335
+      },
+      "end": {
+        "componentId": "resistor_220_1790918576353_oluxe9oz8",
+        "pinName": "1",
+        "x": 409.33066329258423,
+        "y": 234.6637709737892
+      },
+      "waypoints": [
+        {
+          "x": 409.90462841956946,
+          "y": 234.6637709737892
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-1790920146091",
+      "start": {
+        "componentId": "resistor_220_1790918576353_oluxe9oz8",
+        "pinName": "2",
+        "x": 409.33066329258423,
+        "y": 293.4637709737892
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 407.97396656671873,
+          "y": 292.7556297414948
+        },
+        {
+          "x": 407.97396656671873,
+          "y": 339.07492178078263
+        },
+        {
+          "x": 363.47396656671873,
+          "y": 339.07492178078263
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920185534",
+      "start": {
+        "componentId": "led_1790918523467_2i560olye",
+        "pinName": "C",
+        "x": 461.07492746996394,
+        "y": 192.6077731463662
+      },
+      "end": {
+        "componentId": "resistor_220_1790918585183_h2xp0tn5p",
+        "pinName": "1",
+        "x": 460.07427763740674,
+        "y": 237.2463530663884
+      },
+      "waypoints": [
+        {
+          "x": 461.07492746996394,
+          "y": 237.2463530663884
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": true
+    },
+    {
+      "id": "wire-1790920192149",
+      "start": {
+        "componentId": "resistor_220_1790918585183_h2xp0tn5p",
+        "pinName": "2",
+        "x": 460.07427763740674,
+        "y": 296.0463530663884
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 460.07427763740674,
+          "y": 339.07492178078263
+        },
+        {
+          "x": 363.47396656671873,
+          "y": 339.07492178078263
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920208169",
+      "start": {
+        "componentId": "led_1790918523467_2i560olye",
+        "pinName": "A",
+        "x": 471.07492746996394,
+        "y": 192.6077731463662
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "6",
+        "x": 446.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 471.07492746996394,
+          "y": 206.4711268378886
+        },
+        {
+          "x": 475.72462548791526,
+          "y": 206.4711268378886
+        },
+        {
+          "x": 475.72462548791526,
+          "y": 344.4913556377692
+        },
+        {
+          "x": 446.47396656671873,
+          "y": 344.4913556377692
+        }
+      ],
+      "color": "#800080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920239962",
+      "start": {
+        "componentId": "led_1790918517479_trjcaazuj",
+        "pinName": "A",
+        "x": 419.90462841956946,
+        "y": 190.3381212706335
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "7",
+        "x": 436.97396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 419.90462841956946,
+          "y": 220.04101459923342
+        },
+        {
+          "x": 436.97396656671873,
+          "y": 220.04101459923342
+        }
+      ],
+      "color": "#0000cc",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920259674",
+      "start": {
+        "componentId": "led_1790918494602_mis4grd2h",
+        "pinName": "A",
+        "x": 368.4082725078637,
+        "y": 192.42887376102018
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "8",
+        "x": 420.97396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 368.4082725078637,
+          "y": 215.0762552998644
+        },
+        {
+          "x": 391.1707437272665,
+          "y": 215.0762552998644
+        },
+        {
+          "x": 391.1707437272665,
+          "y": 315.5644708196413
+        },
+        {
+          "x": 420.97396656671873,
+          "y": 315.5644708196413
+        }
+      ],
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790920275848",
+      "start": {
+        "componentId": "led_1790918487864_zaygphvxb",
+        "pinName": "A",
+        "x": 319.7186631227878,
+        "y": 193.14152604113224
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "9",
+        "x": 410.97396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 319.7186631227878,
+          "y": 215.0762552998644
+        },
+        {
+          "x": 339.80482532655657,
+          "y": 215.0762552998644
+        },
+        {
+          "x": 339.80482532655657,
+          "y": 325.47844807176335
+        },
+        {
+          "x": 410.97396656671873,
+          "y": 325.47844807176335
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790925064523",
+      "start": {
+        "componentId": "resistor_10k_1790924974067_i66vmw99s",
+        "pinName": "1",
+        "x": 507.6974845374743,
+        "y": 146.8432238556128
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 363.47396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 508.2195431328157,
+          "y": 112.84467151609866
+        },
+        {
+          "x": 257.9325907522031,
+          "y": 112.84467151609866
+        },
+        {
+          "x": 257.9325907522031,
+          "y": 349.21592759659296
+        },
+        {
+          "x": 363.47396656671873,
+          "y": 349.21592759659296
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790925096708",
+      "start": {
+        "componentId": "pushbutton_1790924876726_nfs34audh",
+        "pinName": "2.l",
+        "x": 507.1172817338005,
+        "y": 254.5563073743079
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "3",
+        "x": 474.97396656671873,
+        "y": 371.73445898053103
+      },
+      "waypoints": [
+        {
+          "x": 482.0772218319623,
+          "y": 254.5563073743079
+        },
+        {
+          "x": 482.0772218319623,
+          "y": 349.21592759659296
+        },
+        {
+          "x": 474.97396656671873,
+          "y": 349.21592759659296
+        }
+      ],
+      "color": "#FFFF00",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790926685912",
+      "start": {
+        "componentId": "resistor_10k_1790924974067_i66vmw99s",
+        "pinName": "2",
+        "x": 507.69748453747434,
+        "y": 205.6432238556128
+      },
+      "end": {
+        "componentId": "pushbutton_1790924876726_nfs34audh",
+        "pinName": "2.l",
+        "x": 507.1172817338005,
+        "y": 254.5563073743079
+      },
+      "waypoints": [
+        {
+          "x": 490.9624503265287,
+          "y": 205.6432238556128
+        },
+        {
+          "x": 490.9624503265287,
+          "y": 254.5563073743079
+        }
+      ],
+      "color": "#FFFF00",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1790926720899",
+      "start": {
+        "componentId": "pushbutton_1790924876726_nfs34audh",
+        "pinName": "1.r",
+        "x": 574.1172817338005,
+        "y": 235.5563073743079
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 407.97396656671873,
+        "y": 554.234458980531
+      },
+      "waypoints": [
+        {
+          "x": 654.789307294766,
+          "y": 235.5563073743079
+        },
+        {
+          "x": 654.789307294766,
+          "y": 627.1087178099859
+        },
+        {
+          "x": 407.97396656671873,
+          "y": 627.1087178099859
+        }
+      ],
+      "color": "#cc0000",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

@@ -1,0 +1,335 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-10-10T02:15:38.051Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 280.75943807244454,
+      "y": 60,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "#define RELAY_PIN 26                       // GPIO 26 is wired to the transistor driver (through the 1k resistor)\nconst bool RELAY_ACTIVE_LOW = false;       // the transistor driver is active-HIGH, so HIGH turns the relay on\n\nbool relayState = false;                   // remembers whether we think the relay is on (true) or off (false)\n\nvoid setRelay(bool on) {                   // \"on\" is true for ON and false for OFF\n  relayState = on;                         // store the new state so the rest of the program can check it\n\n  if (RELAY_ACTIVE_LOW) {                  // active-LOW module: the pin level is the opposite of \"on\"\n    digitalWrite(RELAY_PIN, on ? LOW : HIGH);\n  } else {                                 // active-HIGH module or driver: the pin level matches \"on\"\n    digitalWrite(RELAY_PIN, on ? HIGH : LOW);\n  }\n}\n\nvoid setup() {\n  pinMode(RELAY_PIN, OUTPUT);              // make GPIO 26 an output so it can send a signal\n  setRelay(false);                         // start with the relay off\n  Serial.begin(115200);                    // start the Serial Monitor connection\n}\n\nvoid loop() {\n  setRelay(true);                          // energize the relay: the LED lights\n  Serial.println(\"Relay ON\");\n  delay(2000);                             // keep it on for 2 seconds\n\n  setRelay(false);                         // release the relay: the LED goes dark\n  Serial.println(\"Relay OFF\");\n  delay(2000);                             // keep it off for 2 seconds, then loop() repeats\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "resistor_1k_base",
+      "metadataId": "resistor-1k",
+      "x": 72.11124047462367,
+      "y": 68.54919826421963,
+      "properties": {
+        "value": "1000",
+        "rotation": 180
+      }
+    },
+    {
+      "id": "bjt_2n2222_1",
+      "metadataId": "bjt-2n2222",
+      "x": -73.11325371486942,
+      "y": 29.920194306379173,
+      "properties": {
+        "rotation": 180
+      }
+    },
+    {
+      "id": "relay_lab_1",
+      "metadataId": "relay",
+      "x": 81.6132166287141,
+      "y": 174.6553169692396,
+      "properties": {
+        "coil_voltage": 5,
+        "coil_resistance": 70,
+        "include_flyback": true,
+        "rotation": 90
+      }
+    },
+    {
+      "id": "resistor_220_led",
+      "metadataId": "resistor-220",
+      "x": -20.5892335934248,
+      "y": 187.45634795000106,
+      "properties": {
+        "value": "220",
+        "rotation": 180
+      }
+    },
+    {
+      "id": "led_lab_1",
+      "metadataId": "led",
+      "x": 19.787836926842722,
+      "y": 253.97288328328028,
+      "properties": {
+        "color": "red"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 240.5842093961368,
+          "y": 212
+        },
+        {
+          "x": 240.5842093961368,
+          "y": 106.89919826421962
+        }
+      ],
+      "id": "wire-1791900001",
+      "start": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "26",
+        "x": 286.75943807244454,
+        "y": 212
+      },
+      "end": {
+        "componentId": "resistor_1k_base",
+        "pinName": "1",
+        "x": 161.11124047462368,
+        "y": 106.89919826421962
+      },
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 48.886746285130585,
+          "y": 105.41282157318534
+        }
+      ],
+      "id": "wire-1791900002",
+      "start": {
+        "componentId": "resistor_1k_base",
+        "pinName": "2",
+        "x": 102.31124047462367,
+        "y": 106.89919826421962
+      },
+      "end": {
+        "componentId": "bjt_2n2222_1",
+        "pinName": "B",
+        "x": 48.886746285130585,
+        "y": 104.92019430637916
+      },
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": -11.113253714869417,
+          "y": 54.79534460559743
+        },
+        {
+          "x": 258.70594759209865,
+          "y": 54.79534460559743
+        },
+        {
+          "x": 258.70594759209865,
+          "y": 263
+        }
+      ],
+      "id": "wire-1791900003",
+      "start": {
+        "componentId": "bjt_2n2222_1",
+        "pinName": "E",
+        "x": -11.113253714869417,
+        "y": 68.92019430637917
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.1",
+        "x": 286.75943807244454,
+        "y": 263
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": -11.113253714869408,
+          "y": 164.10124259142935
+        },
+        {
+          "x": 78.5,
+          "y": 164.10124259142935
+        }
+      ],
+      "id": "wire-1791900004",
+      "start": {
+        "componentId": "bjt_2n2222_1",
+        "pinName": "C",
+        "x": -11.113253714869408,
+        "y": 140.9201943063792
+      },
+      "end": {
+        "componentId": "relay_lab_1",
+        "pinName": "COIL-",
+        "x": 120.1132166287141,
+        "y": 197.1553169692396
+      },
+      "color": "#f97316",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 184.83808615655258,
+          "y": 172.95031581632233
+        },
+        {
+          "x": 228.24476875344072,
+          "y": 172.95031581632233
+        },
+        {
+          "x": 228.24476875344072,
+          "y": 327
+        }
+      ],
+      "id": "wire-1791900005",
+      "start": {
+        "componentId": "relay_lab_1",
+        "pinName": "COIL+",
+        "x": 184.1132166287141,
+        "y": 197.1553169692396
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "5V",
+        "x": 286.75943807244454,
+        "y": 327
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 184.83808615655258,
+          "y": 327
+        }
+      ],
+      "id": "wire-1791900006",
+      "start": {
+        "componentId": "relay_lab_1",
+        "pinName": "NO",
+        "x": 184.1132166287141,
+        "y": 293.1553169692396
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "5V",
+        "x": 286.75943807244454,
+        "y": 327
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 152.1132166287141,
+          "y": 305.6002012377092
+        },
+        {
+          "x": 89.61432574736554,
+          "y": 305.6002012377092
+        },
+        {
+          "x": 89.61432574736554,
+          "y": 225.80634795000105
+        }
+      ],
+      "id": "wire-1791900007",
+      "start": {
+        "componentId": "relay_lab_1",
+        "pinName": "COM",
+        "x": 152.1132166287141,
+        "y": 293.1553169692396
+      },
+      "end": {
+        "componentId": "resistor_220_led",
+        "pinName": "1",
+        "x": 78.41076640657519,
+        "y": 225.80634795000105
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": -2.9719519575902327,
+          "y": 228.55036225434935
+        },
+        {
+          "x": -2.9719519575902327,
+          "y": 327
+        },
+        {
+          "x": 50.78783692684272,
+          "y": 327
+        }
+      ],
+      "id": "wire-1791900008",
+      "start": {
+        "componentId": "resistor_220_led",
+        "pinName": "2",
+        "x": 19.610766406575202,
+        "y": 225.80634795000105
+      },
+      "end": {
+        "componentId": "led_lab_1",
+        "pinName": "A",
+        "x": 50.78783692684272,
+        "y": 301.9728832832803
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 40.78783692684272,
+          "y": 359.2405462977562
+        },
+        {
+          "x": 258.70594759209865,
+          "y": 359.2405462977562
+        },
+        {
+          "x": 258.70594759209865,
+          "y": 263
+        }
+      ],
+      "id": "wire-1791900009",
+      "start": {
+        "componentId": "led_lab_1",
+        "pinName": "C",
+        "x": 40.78783692684272,
+        "y": 301.9728832832803
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.1",
+        "x": 286.75943807244454,
+        "y": 263
+      },
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}
