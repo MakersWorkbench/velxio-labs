@@ -1,0 +1,1462 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-11-23T04:55:14.307Z",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 2.496668678810579,
+      "y": 181.41759810841907,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <SPI.h>                          // Load the SPI library\n\nconst byte MCP_CS_PIN = 10;               // MCP3008 chip select (also the Uno's SS pin)\nconst byte LATCH_PIN = 9;                 // 74HC595 latch (RCLK)\nconst byte KNOB_CHANNEL = 0;              // The potentiometer is on MCP3008 channel 0\n\n// Read one single-ended channel (0 to 7) as a number from 0 to 1023.\nint readMcp3008(byte channel) {\n  byte frame[3];                          // Three bytes go out and three come back\n  frame[0] = 0x01;                        // Seven zeros, then the start bit\n  frame[1] = 0x80 | (channel << 4);       // Single-ended bit, channel bits, four ignored bits\n  frame[2] = 0x00;                        // Dummy byte that only produces clock pulses\n\n  SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0)); // MCP3008 settings: 1MHz, mode 0\n  digitalWrite(MCP_CS_PIN, LOW);          // Select the MCP3008\n  SPI.transfer(frame, 3);                 // Send the request, receive the reply in place\n  digitalWrite(MCP_CS_PIN, HIGH);         // Deselect the MCP3008\n  SPI.endTransaction();                   // Release the bus\n\n  return ((frame[1] & 0x03) << 8) | frame[2]; // Combine result bits 9 and 8 with bits 7 to 0\n}\n\n// Show a pattern on the eight LEDs: bit 0 is LED 1 (QA) and bit 7 is LED 8 (QH).\nvoid showPattern(byte pattern) {\n  SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0)); // 74HC595 settings: 4MHz, mode 0\n  SPI.transfer(pattern);                  // Shift a full byte in, replacing anything left from other traffic\n  SPI.endTransaction();                   // Release the bus\n  digitalWrite(LATCH_PIN, HIGH);          // Rising edge copies the shift register to the outputs\n  digitalWrite(LATCH_PIN, LOW);           // Return the latch to idle\n}\n\nvoid setup() {\n  Serial.begin(115200);                   // Report over USB\n  pinMode(MCP_CS_PIN, OUTPUT);            // MCP3008 chip select is an output\n  digitalWrite(MCP_CS_PIN, HIGH);         // Idle: not selected\n  pinMode(LATCH_PIN, OUTPUT);             // The latch is an output\n  digitalWrite(LATCH_PIN, LOW);           // The latch idles low\n  SPI.begin();                            // Start the SPI controller\n  showPattern(0);                         // Clear the LEDs so power-up leftovers never show\n}\n\nvoid loop() {\n  int raw = readMcp3008(KNOB_CHANNEL);    // Read the knob: 0 to 1023\n  byte level = (raw * 9L) / 1024;         // Scale to 0 to 8 lit LEDs, using long math to avoid overflow\n  byte pattern = (1 << level) - 1;        // Make \"level\" ones starting at bit 0\n  showPattern(pattern);                   // Send the pattern to the LEDs\n  Serial.print(\"raw = \");                 // Label the raw code\n  Serial.print(raw);                      // The MCP3008 reading\n  Serial.print(\", level = \");             // Label the level\n  Serial.println(level);                  // The number of lit LEDs\n  delay(100);                             // About ten updates a second\n}\n"
+      }
+    ],
+    "group-chip-mcp3008_1": [
+      {
+        "name": "chip.c",
+        "content": "/*\n * mcp3008.c: Microchip MCP3008, 8-channel 10-bit SPI ADC.\n *\n * Pins: CS, SCK, MOSI (DIN), MISO (DOUT), CH0..CH7 (analog inputs).\n *\n * The chip has no byte framing of its own (datasheet DS21295, figure 6-1).\n * After CS falls it waits for a start bit (a 1 on DIN), takes four\n * configuration bits (SGL/DIFF, D2, D1, D0), samples the input on the next\n * clock, drives one null bit, then the 10-bit result MSB first. If the master\n * keeps clocking it repeats the result LSB first and then drives zeros until\n * CS rises. Every driver in the field groups those bits into bytes its own\n * way, and the two common framings both put result bits in the SAME byte as\n * the configuration bits that decide them:\n *\n *   spidev / gpiozero   [0x01, 0x80 | ch << 4, 0x00]  B9 B8 in byte 1\n *   Adafruit_MCP3008    [0xC0 | ch << 3, 0x00, 0x00]  B9 in byte 0\n *\n * That is why this chip answers through `on_exchange` (velxio-chip.h). The\n * buffer of vx_spi_start has to be filled BEFORE the chip has seen the byte\n * it answers, so through the buffer alone a reading loses its top bits (the\n * first version of this example queued the result for a second transaction,\n * which CS rising cancelled, and read 1023 whatever the input). With\n * `on_exchange` the host hands the chip each byte a hardware controller\n * clocks and takes the return value as the MISO for that byte, so the bits go\n * through in order, as they do on silicon.\n *\n * The buffer still matters: a bit-banged master (shiftIn, the Pi's readadc\n * loop) reads MISO bit by bit before its byte is complete, and it reads the\n * armed buffer. So the chip keeps one byte armed at all times, computed as\n * what DOUT would carry over the next eight clocks if DIN stayed low; once\n * the sample clock has passed nothing the master sends changes the answer,\n * so every byte that carries result bits is exact either way.\n */\n\n#include \"velxio-chip.h\"\n#include <stdlib.h>\n\nstatic const char* CH_NAMES[8] = {\"CH0\",\"CH1\",\"CH2\",\"CH3\",\"CH4\",\"CH5\",\"CH6\",\"CH7\"};\n\n/* Where the chip is in one conversion (figure 6-1). */\ntypedef enum { IDLE, CONFIG, SAMPLE, NULL_BIT, MSB, LSB, DONE } phase_t;\n\ntypedef struct {\n  phase_t phase;\n  int cfg;        /* the four configuration bits, MSB first */\n  int cfg_bits;   /* how many of them have arrived */\n  int result;     /* 10-bit code latched at the sample clock */\n  int bit;        /* index of the result bit being shifted out */\n} frame_t;\n\ntypedef struct {\n  vx_pin CS, SCK, MOSI, MISO;\n  vx_pin CH[8];\n  vx_spi spi;\n  frame_t f;\n  uint8_t buf[1];   /* the look-ahead byte a bit-banged master reads */\n} chip_state_t;\n\n/* Volts on a channel, converted at 5 V full scale: 0..1023. */\nstatic int convert(const chip_state_t* s, int cfg) {\n  int single = (cfg >> 3) & 1;\n  int ch = cfg & 7;\n  double v;\n  if (single) {\n    v = vx_pin_read_analog(s->CH[ch]);\n  } else {\n    /* Differential pairs (datasheet table 5-2): 000 = CH0+ CH1-, 001 = CH0- CH1+, ... */\n    int even = ch & ~1;\n    int plus = (ch & 1) ? even + 1 : even;\n    int minus = (ch & 1) ? even : even + 1;\n    v = vx_pin_read_analog(s->CH[plus]) - vx_pin_read_analog(s->CH[minus]);\n  }\n  if (v < 0) v = 0;\n  if (v > 5.0) v = 5.0;\n  return (int)((v / 5.0) * 1023.0 + 0.5);\n}\n\n/* One clock edge: DIN in, DOUT out. */\nstatic int clock_bit(const chip_state_t* s, frame_t* f, int din) {\n  switch (f->phase) {\n    case IDLE:\n      if (din) { f->phase = CONFIG; f->cfg = 0; f->cfg_bits = 0; }\n      return 0;\n    case CONFIG:\n      f->cfg = (f->cfg << 1) | din;\n      if (++f->cfg_bits == 4) f->phase = SAMPLE;\n      return 0;\n    case SAMPLE:\n      f->result = convert(s, f->cfg);\n      f->phase = NULL_BIT;\n      return 0;\n    case NULL_BIT:\n      f->phase = MSB;\n      f->bit = 9;\n      return 0;\n    case MSB: {\n      int out = (f->result >> f->bit) & 1;\n      if (f->bit-- == 0) { f->phase = LSB; f->bit = 1; }\n      return out;\n    }\n    case LSB: {\n      int out = (f->result >> f->bit) & 1;\n      if (++f->bit > 9) f->phase = DONE;\n      return out;\n    }\n    default:\n      return 0;   /* DOUT stays low until CS rises */\n  }\n}\n\n/* Eight clocks, MSB first on both lines: one byte of the exchange. */\nstatic uint8_t clock_byte(const chip_state_t* s, frame_t* f, uint8_t mosi) {\n  uint8_t miso = 0;\n  for (int i = 7; i >= 0; i--) {\n    miso = (uint8_t)((miso << 1) | clock_bit(s, f, (mosi >> i) & 1));\n  }\n  return miso;\n}\n\n/* Arm the look-ahead: the next byte DOUT would carry, without consuming the\n * frame (a copy is clocked, the real one waits for the master's bits). */\nstatic void arm(chip_state_t* s) {\n  frame_t look = s->f;\n  s->buf[0] = clock_byte(s, &look, 0x00);\n  vx_spi_start(s->spi, s->buf, 1);\n}\n\n/* CS moved either way: the conversion in flight is abandoned and the chip\n * waits for a start bit again. It stays armed across the edge so the first\n * bit is on the wire when the next transaction begins. */\nstatic void on_cs_change(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  (void)pin;\n  (void)value;\n  s->f.phase = IDLE;\n  arm(s);\n}\n\n/* A hardware controller clocked one whole byte: shift it through the frame\n * and answer with what DOUT carried meanwhile, then re-arm the look-ahead. */\nstatic uint8_t on_spi_exchange(void* ud, uint8_t mosi) {\n  chip_state_t* s = (chip_state_t*)ud;\n  uint8_t miso = clock_byte(s, &s->f, mosi);\n  arm(s);\n  return miso;\n}\n\n/* A host without `on_exchange` (or a bit-banged master) consumed the\n * look-ahead byte: only now does the chip learn what the master sent, so the\n * real frame catches up here and the next look-ahead follows from it. */\nstatic void on_spi_done(void* ud, uint8_t* buffer, uint32_t count) {\n  chip_state_t* s = (chip_state_t*)ud;\n  if (count == 0) return;\n  clock_byte(s, &s->f, buffer[0]);\n  arm(s);\n}\n\nvoid chip_setup(void) {\n  chip_state_t* s = (chip_state_t*)calloc(1, sizeof(chip_state_t));\n  s->CS   = vx_pin_register(\"CS\",   VX_INPUT_PULLUP);\n  s->SCK  = vx_pin_register(\"SCK\",  VX_INPUT);\n  s->MOSI = vx_pin_register(\"MOSI\", VX_INPUT);\n  /* MISO is answered through the bus, which drives the pad itself for a\n   * bit-banged master; a chip that also stamped a level there would be a\n   * second driver on the same net. So the leg is registered, not driven. */\n  s->MISO = vx_pin_register(\"MISO\", VX_INPUT);\n  for (int i = 0; i < 8; i++) {\n    s->CH[i] = vx_pin_register(CH_NAMES[i], VX_ANALOG);\n  }\n\n  vx_spi_config cfg = {\n    .sck         = s->SCK,\n    .mosi        = s->MOSI,\n    .miso        = s->MISO,\n    .cs          = s->CS,\n    .mode        = 0,             /* SPI mode 0,0 (or 1,1), MSB first */\n    .on_done     = on_spi_done,\n    .user_data   = s,\n    .on_exchange = on_spi_exchange,\n  };\n  s->spi = vx_spi_attach(&cfg);\n  vx_pin_watch(s->CS, VX_EDGE_BOTH, on_cs_change, s);\n  arm(s);\n\n  vx_log(\"MCP3008 ADC ready\");\n}\n"
+      },
+      {
+        "name": "chip.json",
+        "content": "{\n  \"schema\": \"velxio-chip/v1\",\n  \"name\": \"MCP3008\",\n  \"author\": \"Velxio\",\n  \"license\": \"MIT\",\n  \"description\": \"8-channel 10-bit SPI ADC.\",\n  \"pins\": [\"CS\", \"SCK\", \"MOSI\", \"MISO\", \"CH0\", \"CH1\", \"CH2\", \"CH3\",\n           \"CH4\", \"CH5\", \"CH6\", \"CH7\", \"GND\", \"VCC\", \"VREF\", \"AGND\"],\n  \"attributes\": []\n}\n"
+      }
+    ],
+    "group-chip-hc595_1": [
+      {
+        "name": "chip.c",
+        "content": "/*\n * sn74hc595.c — 8-bit SPI shift register with output latches.\n *\n * Pins: SER (data in, MOSI), SRCLK (shift clock, SCK), RCLK (latch),\n *       SRCLR (active-low clear), OE (output enable), QH' (cascade out, MISO),\n *       Q0..Q7 (parallel outputs).\n *\n * Wired as an SPI slave: SER = MOSI, SRCLK = SCK, QH' = MISO. A 74HC595 has\n * NO chip select: it shifts on every SRCLK edge, whatever else is on the bus,\n * so the config declares cs = NO_PIN (DESIGN section 10 of\n * project/board-buses-2026-09). RCLK is the LATCH, not a select: declaring it\n * as the chip select made the chip deaf except while RCLK was low, which is\n * the opposite of the part.\n *\n * Behavior:\n *   - On every SPI byte, 8 bits shift into the internal register.\n *   - On RCLK rising edge, the register copies to Q0..Q7.\n *   - SRCLR LOW resets the register and outputs to 0.\n *   - QH' echoes the byte shifted out the high end (cascade): the buffer the\n *     host hands back holds the previous byte, which is what the 8th stage\n *     puts on the wire while the next one shifts in. It only reaches the bus\n *     when QH' is actually wired to the MISO net.\n */\n\n#include \"velxio-chip.h\"\n#include <stdlib.h>\n#include <string.h>\n\n/* No pin. vx_spi_config fields left at 0 would name pad 0, so a chip with no\n * select has to say so explicitly. */\n#define NO_PIN ((vx_pin)-1)\n\nstatic const char* Q_NAMES[8] = {\"Q0\",\"Q1\",\"Q2\",\"Q3\",\"Q4\",\"Q5\",\"Q6\",\"Q7\"};\n\ntypedef struct {\n  vx_pin SER, SRCLK, RCLK, SRCLR, OE, QH;\n  vx_pin Q[8];\n  vx_spi spi;\n  uint8_t spi_buf[1];\n  uint8_t shift_reg;   /* shift register (volatile) */\n  uint8_t latch_reg;   /* latched outputs */\n} chip_state_t;\n\nstatic void update_outputs(chip_state_t* s) {\n  for (int i = 0; i < 8; i++) {\n    vx_pin_write(s->Q[i], (s->latch_reg >> i) & 1 ? VX_HIGH : VX_LOW);\n  }\n}\n\nstatic void on_spi_done(void* ud, uint8_t* buffer, uint32_t count) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* Each received byte was shifted MSB-first; the resulting register equals\n   * the last byte received (8-bit register, no cascade-in). */\n  if (count > 0) {\n    s->shift_reg = buffer[0];\n  }\n  /* Re-arm the SPI for the next byte: a real 74HC595 has no CS, it shifts on\n   * every SRCLK edge as long as data flows. The buffer still holds the byte\n   * just received, which is what QH' cascades out during the next frame. */\n  vx_spi_start(s->spi, s->spi_buf, 1);\n}\n\nstatic void on_rclk(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* RCLK rising edge → latch shift register to outputs. */\n  s->latch_reg = s->shift_reg;\n  update_outputs(s);\n}\n\nstatic void on_srclr(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* SRCLR is active LOW: when it goes LOW, clear the shift register.\n   * Outputs only update on the next RCLK rising edge. */\n  if (value == VX_LOW) {\n    s->shift_reg = 0;\n  }\n}\n\nvoid chip_setup(void) {\n  chip_state_t* s = (chip_state_t*)calloc(1, sizeof(chip_state_t));\n  s->SER   = vx_pin_register(\"SER\",   VX_INPUT);\n  s->SRCLK = vx_pin_register(\"SRCLK\", VX_INPUT);\n  s->RCLK  = vx_pin_register(\"RCLK\",  VX_INPUT);\n  s->SRCLR = vx_pin_register(\"SRCLR\", VX_INPUT_PULLUP);\n  s->OE    = vx_pin_register(\"OE\",    VX_INPUT);\n  s->QH    = vx_pin_register(\"QH\",    VX_OUTPUT_LOW);\n  for (int i = 0; i < 8; i++) {\n    s->Q[i] = vx_pin_register(Q_NAMES[i], VX_OUTPUT_LOW);\n  }\n\n  vx_spi_config cfg = {\n    .sck       = s->SRCLK,\n    .mosi      = s->SER,\n    .miso      = s->QH,\n    .cs        = NO_PIN,    /* no select line: RCLK below is the output latch */\n    .mode      = 0,\n    .on_done   = on_spi_done,\n    .user_data = s,\n  };\n  s->spi = vx_spi_attach(&cfg);\n\n  /* Tell the host we want to receive 1 byte at a time on the SPI bus. */\n  vx_spi_start(s->spi, s->spi_buf, 1);\n\n  vx_pin_watch(s->RCLK,  VX_EDGE_RISING,  on_rclk,  s);\n  vx_pin_watch(s->SRCLR, VX_EDGE_FALLING, on_srclr, s);\n\n  vx_log(\"74HC595 shift register ready\");\n}\n"
+      },
+      {
+        "name": "chip.json",
+        "content": "{\n  \"schema\": \"velxio-chip/v1\",\n  \"name\": \"74HC595\",\n  \"author\": \"Velxio\",\n  \"license\": \"MIT\",\n  \"description\": \"8-bit serial-in parallel-out shift register with output latches.\",\n  \"pins\": [\"SER\", \"SRCLK\", \"RCLK\", \"SRCLR\", \"OE\", \"QH\",\n           \"Q0\", \"Q1\", \"Q2\", \"Q3\", \"Q4\", \"Q5\", \"Q6\", \"Q7\", \"GND\", \"VCC\"],\n  \"attributes\": []\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "mcp3008_1",
+      "metadataId": "custom-chip",
+      "x": 391.34538507972553,
+      "y": 62.49556918477529,
+      "properties": {
+        "chipName": "MCP3008",
+        "sourceC": "/*\n * mcp3008.c: Microchip MCP3008, 8-channel 10-bit SPI ADC.\n *\n * Pins: CS, SCK, MOSI (DIN), MISO (DOUT), CH0..CH7 (analog inputs).\n *\n * The chip has no byte framing of its own (datasheet DS21295, figure 6-1).\n * After CS falls it waits for a start bit (a 1 on DIN), takes four\n * configuration bits (SGL/DIFF, D2, D1, D0), samples the input on the next\n * clock, drives one null bit, then the 10-bit result MSB first. If the master\n * keeps clocking it repeats the result LSB first and then drives zeros until\n * CS rises. Every driver in the field groups those bits into bytes its own\n * way, and the two common framings both put result bits in the SAME byte as\n * the configuration bits that decide them:\n *\n *   spidev / gpiozero   [0x01, 0x80 | ch << 4, 0x00]  B9 B8 in byte 1\n *   Adafruit_MCP3008    [0xC0 | ch << 3, 0x00, 0x00]  B9 in byte 0\n *\n * That is why this chip answers through `on_exchange` (velxio-chip.h). The\n * buffer of vx_spi_start has to be filled BEFORE the chip has seen the byte\n * it answers, so through the buffer alone a reading loses its top bits (the\n * first version of this example queued the result for a second transaction,\n * which CS rising cancelled, and read 1023 whatever the input). With\n * `on_exchange` the host hands the chip each byte a hardware controller\n * clocks and takes the return value as the MISO for that byte, so the bits go\n * through in order, as they do on silicon.\n *\n * The buffer still matters: a bit-banged master (shiftIn, the Pi's readadc\n * loop) reads MISO bit by bit before its byte is complete, and it reads the\n * armed buffer. So the chip keeps one byte armed at all times, computed as\n * what DOUT would carry over the next eight clocks if DIN stayed low; once\n * the sample clock has passed nothing the master sends changes the answer,\n * so every byte that carries result bits is exact either way.\n */\n\n#include \"velxio-chip.h\"\n#include <stdlib.h>\n\nstatic const char* CH_NAMES[8] = {\"CH0\",\"CH1\",\"CH2\",\"CH3\",\"CH4\",\"CH5\",\"CH6\",\"CH7\"};\n\n/* Where the chip is in one conversion (figure 6-1). */\ntypedef enum { IDLE, CONFIG, SAMPLE, NULL_BIT, MSB, LSB, DONE } phase_t;\n\ntypedef struct {\n  phase_t phase;\n  int cfg;        /* the four configuration bits, MSB first */\n  int cfg_bits;   /* how many of them have arrived */\n  int result;     /* 10-bit code latched at the sample clock */\n  int bit;        /* index of the result bit being shifted out */\n} frame_t;\n\ntypedef struct {\n  vx_pin CS, SCK, MOSI, MISO;\n  vx_pin CH[8];\n  vx_spi spi;\n  frame_t f;\n  uint8_t buf[1];   /* the look-ahead byte a bit-banged master reads */\n} chip_state_t;\n\n/* Volts on a channel, converted at 5 V full scale: 0..1023. */\nstatic int convert(const chip_state_t* s, int cfg) {\n  int single = (cfg >> 3) & 1;\n  int ch = cfg & 7;\n  double v;\n  if (single) {\n    v = vx_pin_read_analog(s->CH[ch]);\n  } else {\n    /* Differential pairs (datasheet table 5-2): 000 = CH0+ CH1-, 001 = CH0- CH1+, ... */\n    int even = ch & ~1;\n    int plus = (ch & 1) ? even + 1 : even;\n    int minus = (ch & 1) ? even : even + 1;\n    v = vx_pin_read_analog(s->CH[plus]) - vx_pin_read_analog(s->CH[minus]);\n  }\n  if (v < 0) v = 0;\n  if (v > 5.0) v = 5.0;\n  return (int)((v / 5.0) * 1023.0 + 0.5);\n}\n\n/* One clock edge: DIN in, DOUT out. */\nstatic int clock_bit(const chip_state_t* s, frame_t* f, int din) {\n  switch (f->phase) {\n    case IDLE:\n      if (din) { f->phase = CONFIG; f->cfg = 0; f->cfg_bits = 0; }\n      return 0;\n    case CONFIG:\n      f->cfg = (f->cfg << 1) | din;\n      if (++f->cfg_bits == 4) f->phase = SAMPLE;\n      return 0;\n    case SAMPLE:\n      f->result = convert(s, f->cfg);\n      f->phase = NULL_BIT;\n      return 0;\n    case NULL_BIT:\n      f->phase = MSB;\n      f->bit = 9;\n      return 0;\n    case MSB: {\n      int out = (f->result >> f->bit) & 1;\n      if (f->bit-- == 0) { f->phase = LSB; f->bit = 1; }\n      return out;\n    }\n    case LSB: {\n      int out = (f->result >> f->bit) & 1;\n      if (++f->bit > 9) f->phase = DONE;\n      return out;\n    }\n    default:\n      return 0;   /* DOUT stays low until CS rises */\n  }\n}\n\n/* Eight clocks, MSB first on both lines: one byte of the exchange. */\nstatic uint8_t clock_byte(const chip_state_t* s, frame_t* f, uint8_t mosi) {\n  uint8_t miso = 0;\n  for (int i = 7; i >= 0; i--) {\n    miso = (uint8_t)((miso << 1) | clock_bit(s, f, (mosi >> i) & 1));\n  }\n  return miso;\n}\n\n/* Arm the look-ahead: the next byte DOUT would carry, without consuming the\n * frame (a copy is clocked, the real one waits for the master's bits). */\nstatic void arm(chip_state_t* s) {\n  frame_t look = s->f;\n  s->buf[0] = clock_byte(s, &look, 0x00);\n  vx_spi_start(s->spi, s->buf, 1);\n}\n\n/* CS moved either way: the conversion in flight is abandoned and the chip\n * waits for a start bit again. It stays armed across the edge so the first\n * bit is on the wire when the next transaction begins. */\nstatic void on_cs_change(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  (void)pin;\n  (void)value;\n  s->f.phase = IDLE;\n  arm(s);\n}\n\n/* A hardware controller clocked one whole byte: shift it through the frame\n * and answer with what DOUT carried meanwhile, then re-arm the look-ahead. */\nstatic uint8_t on_spi_exchange(void* ud, uint8_t mosi) {\n  chip_state_t* s = (chip_state_t*)ud;\n  uint8_t miso = clock_byte(s, &s->f, mosi);\n  arm(s);\n  return miso;\n}\n\n/* A host without `on_exchange` (or a bit-banged master) consumed the\n * look-ahead byte: only now does the chip learn what the master sent, so the\n * real frame catches up here and the next look-ahead follows from it. */\nstatic void on_spi_done(void* ud, uint8_t* buffer, uint32_t count) {\n  chip_state_t* s = (chip_state_t*)ud;\n  if (count == 0) return;\n  clock_byte(s, &s->f, buffer[0]);\n  arm(s);\n}\n\nvoid chip_setup(void) {\n  chip_state_t* s = (chip_state_t*)calloc(1, sizeof(chip_state_t));\n  s->CS   = vx_pin_register(\"CS\",   VX_INPUT_PULLUP);\n  s->SCK  = vx_pin_register(\"SCK\",  VX_INPUT);\n  s->MOSI = vx_pin_register(\"MOSI\", VX_INPUT);\n  /* MISO is answered through the bus, which drives the pad itself for a\n   * bit-banged master; a chip that also stamped a level there would be a\n   * second driver on the same net. So the leg is registered, not driven. */\n  s->MISO = vx_pin_register(\"MISO\", VX_INPUT);\n  for (int i = 0; i < 8; i++) {\n    s->CH[i] = vx_pin_register(CH_NAMES[i], VX_ANALOG);\n  }\n\n  vx_spi_config cfg = {\n    .sck         = s->SCK,\n    .mosi        = s->MOSI,\n    .miso        = s->MISO,\n    .cs          = s->CS,\n    .mode        = 0,             /* SPI mode 0,0 (or 1,1), MSB first */\n    .on_done     = on_spi_done,\n    .user_data   = s,\n    .on_exchange = on_spi_exchange,\n  };\n  s->spi = vx_spi_attach(&cfg);\n  vx_pin_watch(s->CS, VX_EDGE_BOTH, on_cs_change, s);\n  arm(s);\n\n  vx_log(\"MCP3008 ADC ready\");\n}\n",
+        "chipJson": "{\n  \"schema\": \"velxio-chip/v1\",\n  \"name\": \"MCP3008\",\n  \"author\": \"Velxio\",\n  \"license\": \"MIT\",\n  \"description\": \"8-channel 10-bit SPI ADC.\",\n  \"pins\": [\"CS\", \"SCK\", \"MOSI\", \"MISO\", \"CH0\", \"CH1\", \"CH2\", \"CH3\",\n           \"CH4\", \"CH5\", \"CH6\", \"CH7\", \"GND\", \"VCC\", \"VREF\", \"AGND\"],\n  \"attributes\": []\n}\n",
+        "wasmBase64": "AGFzbQEAAAABLAhgAn9/AX9gAX8Bf2AEf39/fwBgA39/fwBgAX8AYAF/AXxgAABgA39/fwF/AoUBBwNlbnYGbWVtb3J5AgACA2Vudg92eF9waW5fcmVnaXN0ZXIAAANlbnYNdnhfc3BpX2F0dGFjaAABA2Vudgx2eF9waW5fd2F0Y2gAAgNlbnYMdnhfc3BpX3N0YXJ0AAMDZW52BnZ4X2xvZwAEA2VudhJ2eF9waW5fcmVhZF9hbmFsb2cABQMQDwYGAAMDBwEHAAYBBwYGBgQFAXABBAQGCAF/AUHAjAQLByoCGV9faW5kaXJlY3RfZnVuY3Rpb25fdGFibGUBAApjaGlwX3NldHVwABQIAQYJCQEAQQELAwgJCgqaQw8NAEHECEEAQfQD/AsAC50EAQZ/I4CAgIAAQeAAayIAJICAgIAAQQFBzAAQjoCAgAAiAUGSiICAAEECEICAgIAAIgI2AgAgAUGaiICAAEEAEICAgIAAIgM2AgQgAUGeiICAAEEAEICAgIAAIgQ2AgggAUGViICAAEEAEICAgIAAIgU2AgwgAUG/iICAAEEEEICAgIAANgIQIAFBFGpBu4iAgABBBBCAgICAADYCACABQRhqQbeIgIAAQQQQgICAgAA2AgAgAUEcakGziICAAEEEEICAgIAANgIAIAFBIGpBr4iAgABBBBCAgICAADYCACABQSRqQauIgIAAQQQQgICAgAA2AgAgAUEoakGniICAAEEEEICAgIAANgIAIAFBLGpBo4iAgABBBBCAgICAADYCACAAQQxqQShqQgA3AgAgAEE8akIANwIAIABBxABqQQA2AgAgAEIANwIsIABBgYCAgAA2AiggACABNgIkIABBgoCAgAA2AiAgAEEANgIcIAAgAjYCGCAAIAU2AhQgACAENgIQIAAgAzYCDCABIABBDGoQgYCAgAA2AjAgASgCAEEDQYOAgIAAIAEQgoCAgAAgAEHYAGogAUHEAGooAgA2AgAgAEHQAGogAUE8aikCADcDACAAIAEpAjQ3A0ggASABIABByABqQQAQi4CAgAA6AEggASgCMCABQcgAakEBEIOAgIAAQYCIgIAAEISAgIAAIABB4ABqJICAgIAAC4UBAQF/I4CAgIAAQSBrIgIkgICAgAAgACAAQTRqIAEQi4CAgAAhASACQRhqIABBxABqKAIANgIAIAJBEGogAEE8aikCADcDACACIAApAjQ3AwggACAAIAJBCGpBABCLgICAADoASCAAKAIwIABByABqQQEQg4CAgAAgAkEgaiSAgICAACABC40BAQF/I4CAgIAAQSBrIgMkgICAgAACQCACRQ0AIAAgAEE0aiABLQAAEIuAgIAAGiADQRhqIABBxABqKAIANgIAIANBEGogAEE8aikCADcDACADIAApAjQ3AwggACAAIANBCGpBABCLgICAADoASCAAKAIwIABByABqQQEQg4CAgAALIANBIGokgICAgAALeQEBfyOAgICAAEEgayIDJICAgIAAIABBADYCNCADQRhqIABBxABqKAIANgIAIANBEGogAEE8aikCADcDACADIAApAjQ3AwggACAAIANBCGpBABCLgICAADoASCAAKAIwIABByABqQQEQg4CAgAAgA0EgaiSAgICAAAuyBAIHfwF8IAEoAgAhA0EAIQQgAEEQaiEFQQchBgNAIAIgBnZBAXEhByAEQQF0Qf4DcSEIQQAhBAJAAkACQAJAAkACQAJAAkACQCADDgYAAQIDBAUIC0EAIQNBACEEIAdFDQdBACEEIAFBADYCCCABQgE3AgBBASEDDAcLQQEhAyABIAEoAghBAWoiCTYCCCABIAEoAgRBAXQgB3I2AgRBACEEIAlBBEcNBkECIQMMBQsgASgCBCIDQQdxIQQCQAJAIANBCHFFDQAgACAEQQJ0akEQaigCABCFgICAACEKDAELIAUgBEECdGooAgAQhYCAgAAgBSAEQQFzQQJ0aigCABCFgICAAKEhCgtBAyEDIAFBAzYCAAJAAkBEAAAAAAAAFEBEAAAAAAAAAAAgCiAKRAAAAAAAAAAAYxsiCiAKRAAAAAAAABRAZBtEAAAAAAAAFECjRAAAAAAA+I9AokQAAAAAAADgP6AiCplEAAAAAAAA4EFjRQ0AIAqqIQQMAQtBgICAgHghBAsgASAENgIMQQAhBAwFCyABQQk2AhBBBCEDDAMLIAEgASgCECIHQX9qNgIQIAEoAgwgB3ZBAXEhBEEEIQMgBw0DIAFBATYCEEEFIQMMAQsgASABKAIQIgdBAWo2AhAgASgCDCAHdkEBcSEEQQUhAyAHQQlIDQJBBiEDCyABIAM2AgAMAQsgASADNgIAQQAhBAsgBCAIciEEIAZBf2oiBkF/Rw0A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cmVnaXN0ZXIBDXZ4X3NwaV9hdHRhY2gCDHZ4X3Bpbl93YXRjaAMMdnhfc3BpX3N0YXJ0BAZ2eF9sb2cFEnZ4X3Bpbl9yZWFkX2FuYWxvZwYSX193YXNtX2luaXRfbWVtb3J5BwpjaGlwX3NldHVwCA9vbl9zcGlfZXhjaGFuZ2UJC29uX3NwaV9kb25lCgxvbl9jc19jaGFuZ2ULCmNsb2NrX2J5dGUMCGRsbWFsbG9jDQ1wcmVwZW5kX2FsbG9jDgZjYWxsb2MPBWFib3J0EARzYnJrEQZtZW1zZXQSBWR1bW15ExFfX3dhc21fY2FsbF9kdG9ycxQZY2hpcF9zZXR1cC5jb21tYW5kX2V4cG9ydAcSAQAPX19zdGFja19wb2ludGVyCQoBAAcucm9kYXRhAHYJcHJvZHVjZXJzAQxwcm9jZXNzZWQtYnkBBWNsYW5nVjE4LjEuMiAoaHR0cHM6Ly9naXRodWIuY29tL2xsdm0vbGx2bS1wcm9qZWN0IDI2YTFkNjYwMWQ3MjdhOTZmNDMwMWQwZDg2NDdiNWE0Mjc2MGFlMGMpADkPdGFyZ2V0X2ZlYXR1cmVzAysLYnVsay1tZW1vcnkrD211dGFibGUtZ2xvYmFscysIc2lnbi1leHQ=",
+        "romBytes": "",
+        "programFile": "",
+        "programTarget": "",
+        "image": ""
+      }
+    },
+    {
+      "id": "hc595_1",
+      "metadataId": "custom-chip",
+      "x": 394.79863832039996,
+      "y": 429.80121332914166,
+      "properties": {
+        "chipName": "74HC595",
+        "sourceC": "/*\n * sn74hc595.c — 8-bit SPI shift register with output latches.\n *\n * Pins: SER (data in, MOSI), SRCLK (shift clock, SCK), RCLK (latch),\n *       SRCLR (active-low clear), OE (output enable), QH' (cascade out, MISO),\n *       Q0..Q7 (parallel outputs).\n *\n * Wired as an SPI slave: SER = MOSI, SRCLK = SCK, QH' = MISO. A 74HC595 has\n * NO chip select: it shifts on every SRCLK edge, whatever else is on the bus,\n * so the config declares cs = NO_PIN (DESIGN section 10 of\n * project/board-buses-2026-09). RCLK is the LATCH, not a select: declaring it\n * as the chip select made the chip deaf except while RCLK was low, which is\n * the opposite of the part.\n *\n * Behavior:\n *   - On every SPI byte, 8 bits shift into the internal register.\n *   - On RCLK rising edge, the register copies to Q0..Q7.\n *   - SRCLR LOW resets the register and outputs to 0.\n *   - QH' echoes the byte shifted out the high end (cascade): the buffer the\n *     host hands back holds the previous byte, which is what the 8th stage\n *     puts on the wire while the next one shifts in. It only reaches the bus\n *     when QH' is actually wired to the MISO net.\n */\n\n#include \"velxio-chip.h\"\n#include <stdlib.h>\n#include <string.h>\n\n/* No pin. vx_spi_config fields left at 0 would name pad 0, so a chip with no\n * select has to say so explicitly. */\n#define NO_PIN ((vx_pin)-1)\n\nstatic const char* Q_NAMES[8] = {\"Q0\",\"Q1\",\"Q2\",\"Q3\",\"Q4\",\"Q5\",\"Q6\",\"Q7\"};\n\ntypedef struct {\n  vx_pin SER, SRCLK, RCLK, SRCLR, OE, QH;\n  vx_pin Q[8];\n  vx_spi spi;\n  uint8_t spi_buf[1];\n  uint8_t shift_reg;   /* shift register (volatile) */\n  uint8_t latch_reg;   /* latched outputs */\n} chip_state_t;\n\nstatic void update_outputs(chip_state_t* s) {\n  for (int i = 0; i < 8; i++) {\n    vx_pin_write(s->Q[i], (s->latch_reg >> i) & 1 ? VX_HIGH : VX_LOW);\n  }\n}\n\nstatic void on_spi_done(void* ud, uint8_t* buffer, uint32_t count) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* Each received byte was shifted MSB-first; the resulting register equals\n   * the last byte received (8-bit register, no cascade-in). */\n  if (count > 0) {\n    s->shift_reg = buffer[0];\n  }\n  /* Re-arm the SPI for the next byte: a real 74HC595 has no CS, it shifts on\n   * every SRCLK edge as long as data flows. The buffer still holds the byte\n   * just received, which is what QH' cascades out during the next frame. */\n  vx_spi_start(s->spi, s->spi_buf, 1);\n}\n\nstatic void on_rclk(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* RCLK rising edge → latch shift register to outputs. */\n  s->latch_reg = s->shift_reg;\n  update_outputs(s);\n}\n\nstatic void on_srclr(void* ud, vx_pin pin, int value) {\n  chip_state_t* s = (chip_state_t*)ud;\n  /* SRCLR is active LOW: when it goes LOW, clear the shift register.\n   * Outputs only update on the next RCLK rising edge. */\n  if (value == VX_LOW) {\n    s->shift_reg = 0;\n  }\n}\n\nvoid chip_setup(void) {\n  chip_state_t* s = (chip_state_t*)calloc(1, sizeof(chip_state_t));\n  s->SER   = vx_pin_register(\"SER\",   VX_INPUT);\n  s->SRCLK = vx_pin_register(\"SRCLK\", VX_INPUT);\n  s->RCLK  = vx_pin_register(\"RCLK\",  VX_INPUT);\n  s->SRCLR = vx_pin_register(\"SRCLR\", VX_INPUT_PULLUP);\n  s->OE    = vx_pin_register(\"OE\",    VX_INPUT);\n  s->QH    = vx_pin_register(\"QH\",    VX_OUTPUT_LOW);\n  for (int i = 0; i < 8; i++) {\n    s->Q[i] = vx_pin_register(Q_NAMES[i], VX_OUTPUT_LOW);\n  }\n\n  vx_spi_config cfg = {\n    .sck       = s->SRCLK,\n    .mosi      = s->SER,\n    .miso      = s->QH,\n    .cs        = NO_PIN,    /* no select line: RCLK below is the output latch */\n    .mode      = 0,\n    .on_done   = on_spi_done,\n    .user_data = s,\n  };\n  s->spi = vx_spi_attach(&cfg);\n\n  /* Tell the host we want to receive 1 byte at a time on the SPI bus. */\n  vx_spi_start(s->spi, s->spi_buf, 1);\n\n  vx_pin_watch(s->RCLK,  VX_EDGE_RISING,  on_rclk,  s);\n  vx_pin_watch(s->SRCLR, VX_EDGE_FALLING, on_srclr, s);\n\n  vx_log(\"74HC595 shift register ready\");\n}\n",
+        "chipJson": "{\n  \"schema\": \"velxio-chip/v1\",\n  \"name\": \"74HC595\",\n  \"author\": \"Velxio\",\n  \"license\": \"MIT\",\n  \"description\": \"8-bit serial-in parallel-out shift register with output latches.\",\n  \"pins\": [\"SER\", \"SRCLK\", \"RCLK\", \"SRCLR\", \"OE\", \"QH\",\n           \"Q0\", \"Q1\", \"Q2\", \"Q3\", \"Q4\", \"Q5\", \"Q6\", \"Q7\", \"GND\", \"VCC\"],\n  \"attributes\": []\n}\n",
+        "wasmBase64": "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AwggAiAGNwMAIAJBIGohAiABQWBqIgFBH0sNAAsLIAALAgALDgAQkYCAgAAQkYCAgAALBgAQBxASCwtSAQBBgAgLSzc0SEM1OTUgc2hpZnQgcmVnaXN0ZXIgcmVhZHkAU1JDTFIAU0VSAFNSQ0xLAFFIAE9FAFE3AFE2AFE1AFE0AFEzAFEyAFExAFEwAAC3AgRuYW1lAA8Oc243NGhjNTk1Lndhc20B/gEUAA92eF9waW5fcmVnaXN0ZXIBDXZ4X3NwaV9hdHRhY2gCDHZ4X3NwaV9zdGFydAMMdnhfcGluX3dhdGNoBAZ2eF9sb2cFDHZ4X3Bpbl93cml0ZQYSX193YXNtX2luaXRfbWVtb3J5BwpjaGlwX3NldHVwCAtvbl9zcGlfZG9uZQkHb25fcmNsawoIb25fc3JjbHILCGRsbWFsbG9jDA1wcmVwZW5kX2FsbG9jDQZjYWxsb2MOBWFib3J0DwRzYnJrEAZtZW1zZXQRBWR1bW15EhFfX3dhc21fY2FsbF9kdG9ycxMZY2hpcF9zZXR1cC5jb21tYW5kX2V4cG9ydAcSAQAPX19zdGFja19wb2ludGVyCQoBAAcucm9kYXRhAHYJcHJvZHVjZXJzAQxwcm9jZXNzZWQtYnkBBWNsYW5nVjE4LjEuMiAoaHR0cHM6Ly9naXRodWIuY29tL2xsdm0vbGx2bS1wcm9qZWN0IDI2YTFkNjYwMWQ3MjdhOTZmNDMwMWQwZDg2NDdiNWE0Mjc2MGFlMGMpADkPdGFyZ2V0X2ZlYXR1cmVzAysLYnVsay1tZW1vcnkrD211dGFibGUtZ2xvYmFscysIc2lnbi1leHQ=",
+        "romBytes": "",
+        "programFile": "",
+        "programTarget": "",
+        "image": ""
+      }
+    },
+    {
+      "id": "pot_1",
+      "metadataId": "potentiometer",
+      "x": 541.3050833083087,
+      "y": 87.36564037003778,
+      "properties": {
+        "value": 0
+      }
+    },
+    {
+      "id": "r1",
+      "metadataId": "resistor-1k",
+      "x": 639.0893804361713,
+      "y": 220.8938043617123,
+      "properties": {}
+    },
+    {
+      "id": "led1",
+      "metadataId": "led",
+      "x": 762.4538140012305,
+      "y": 157.66467835122486,
+      "properties": {
+        "rotation": 0
+      }
+    },
+    {
+      "id": "r2",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 282,
+      "properties": {}
+    },
+    {
+      "id": "led2",
+      "metadataId": "led",
+      "x": 760.6162749418421,
+      "y": 226.82930832203795,
+      "properties": {}
+    },
+    {
+      "id": "r3",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 334,
+      "properties": {}
+    },
+    {
+      "id": "led3",
+      "metadataId": "led",
+      "x": 759.4113107560266,
+      "y": 283.9986810830238,
+      "properties": {}
+    },
+    {
+      "id": "r4",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 386,
+      "properties": {}
+    },
+    {
+      "id": "led4",
+      "metadataId": "led",
+      "x": 758.1787608723427,
+      "y": 335.62468661788097,
+      "properties": {}
+    },
+    {
+      "id": "r5",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 438,
+      "properties": {}
+    },
+    {
+      "id": "led5",
+      "metadataId": "led",
+      "x": 759.3308201699398,
+      "y": 392.61283767274585,
+      "properties": {}
+    },
+    {
+      "id": "r6",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 496.3159020103745,
+      "properties": {}
+    },
+    {
+      "id": "led6",
+      "metadataId": "led",
+      "x": 758.5502268137283,
+      "y": 450.1284502514783,
+      "properties": {}
+    },
+    {
+      "id": "r7",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 542,
+      "properties": {}
+    },
+    {
+      "id": "led7",
+      "metadataId": "led",
+      "x": 757.8533868841017,
+      "y": 497.728972921308,
+      "properties": {}
+    },
+    {
+      "id": "r8",
+      "metadataId": "resistor-1k",
+      "x": 640,
+      "y": 594,
+      "properties": {}
+    },
+    {
+      "id": "led8",
+      "metadataId": "led",
+      "x": 757.7326804027389,
+      "y": 546.8397523769677,
+      "properties": {}
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 376.3926708825114,
+          "y": 102.49556918477529
+        },
+        {
+          "x": 376.3926708825114,
+          "y": 95.14587260034116
+        },
+        {
+          "x": 127.49666867881058,
+          "y": 95.14587260034116
+        }
+      ],
+      "id": "wire-1795400000001",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "SCK",
+        "x": 397.34538507972553,
+        "y": 102.49556918477529
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "13",
+        "x": 127.49666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#32CD32",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 146.49666867881058,
+          "y": 122.49556918477529
+        }
+      ],
+      "id": "wire-1795400000002",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "MOSI",
+        "x": 397.34538507972553,
+        "y": 122.49556918477529
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "11",
+        "x": 146.49666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 136.99666867881058,
+          "y": 142.4955691847753
+        }
+      ],
+      "id": "wire-1795400000003",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "MISO",
+        "x": 397.34538507972553,
+        "y": 142.4955691847753
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "12",
+        "x": 136.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#06b6d4",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 155.99666867881058,
+          "y": 82.49556918477529
+        }
+      ],
+      "id": "wire-1795400000004",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "CS",
+        "x": 397.34538507972553,
+        "y": 82.49556918477529
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "10",
+        "x": 155.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#d946ef",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 319.66568115359195,
+          "y": 426.25499698178413
+        },
+        {
+          "x": 319.66568115359195,
+          "y": 102.49556918477529
+        },
+        {
+          "x": 127.49666867881058,
+          "y": 102.49556918477529
+        }
+      ],
+      "id": "wire-1795400000005",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "SRCLK",
+        "x": 400.79863832039996,
+        "y": 469.80121332914166
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "13",
+        "x": 127.49666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 336.7950098336253,
+          "y": 406.25499698178413
+        },
+        {
+          "x": 336.7950098336253,
+          "y": 122.49556918477529
+        },
+        {
+          "x": 146.49666867881058,
+          "y": 122.49556918477529
+        }
+      ],
+      "id": "wire-1795400000006",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "SER",
+        "x": 400.79863832039996,
+        "y": 449.80121332914166
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "11",
+        "x": 146.49666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 356.2269233857782,
+          "y": 446.25499698178413
+        },
+        {
+          "x": 356.2269233857782,
+          "y": 155.4364561068877
+        },
+        {
+          "x": 165.49666867881058,
+          "y": 155.4364561068877
+        }
+      ],
+      "id": "wire-1795400000007",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "RCLK",
+        "x": 400.79863832039996,
+        "y": 489.80121332914166
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "9",
+        "x": 165.49666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#f97316",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 527.7596748942436,
+          "y": 182.4955691847753
+        },
+        {
+          "x": 527.7596748942436,
+          "y": 414.04086893703146
+        },
+        {
+          "x": 162.49666867881058,
+          "y": 414.04086893703146
+        }
+      ],
+      "id": "wire-1795400000008",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "VCC",
+        "x": 481.34538507972553,
+        "y": 182.4955691847753
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 162.49666867881058,
+        "y": 372.91759810841904
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 527.7596748942436,
+          "y": 202.4955691847753
+        },
+        {
+          "x": 527.7596748942436,
+          "y": 414.04086893703146
+        },
+        {
+          "x": 162.49666867881058,
+          "y": 414.04086893703146
+        }
+      ],
+      "id": "wire-1795400000009",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "VREF",
+        "x": 481.34538507972553,
+        "y": 202.4955691847753
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 162.49666867881058,
+        "y": 372.91759810841904
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 508.686515176262,
+          "y": 162.4955691847753
+        },
+        {
+          "x": 508.686515176262,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000010",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "GND",
+        "x": 481.34538507972553,
+        "y": 162.4955691847753
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 508.686515176262,
+          "y": 222.4955691847753
+        },
+        {
+          "x": 508.686515176262,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000011",
+      "start": {
+        "componentId": "mcp3008_1",
+        "pinName": "AGND",
+        "x": 481.34538507972553,
+        "y": 222.4955691847753
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 516.686515176262,
+          "y": 589.1100627126926
+        },
+        {
+          "x": 516.686515176262,
+          "y": 623.6832175125569
+        },
+        {
+          "x": 162.49666867881058,
+          "y": 623.6832175125569
+        }
+      ],
+      "id": "wire-1795400000012",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "VCC",
+        "x": 484.79863832039996,
+        "y": 589.8012133291417
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 162.49666867881058,
+        "y": 372.91759810841904
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 162.49666867881058,
+          "y": 509.80121332914166
+        }
+      ],
+      "id": "wire-1795400000013",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "SRCLR",
+        "x": 400.79863832039996,
+        "y": 509.80121332914166
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 162.49666867881058,
+        "y": 372.91759810841904
+      },
+      "color": "#ef4444",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 527.7596748942436,
+          "y": 569.8012133291417
+        },
+        {
+          "x": 527.7596748942436,
+          "y": 623.6832175125569
+        },
+        {
+          "x": 722.6641487328812,
+          "y": 623.6832175125569
+        },
+        {
+          "x": 722.6641487328812,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000014",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "GND",
+        "x": 484.79863832039996,
+        "y": 569.8012133291417
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 356.2269233857782,
+          "y": 529.8012133291417
+        },
+        {
+          "x": 356.2269233857782,
+          "y": 642
+        },
+        {
+          "x": 821.1757802088817,
+          "y": 642
+        },
+        {
+          "x": 821.1757802088817,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000015",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "OE",
+        "x": 400.79863832039996,
+        "y": 529.8012133291417
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 596.0519610562333,
+          "y": 124.31307193403194
+        },
+        {
+          "x": 596.0519610562333,
+          "y": 414.04086893703146
+        },
+        {
+          "x": 162.49666867881058,
+          "y": 414.04086893703146
+        }
+      ],
+      "id": "wire-1795400000016",
+      "start": {
+        "componentId": "pot_1",
+        "pinName": "VCC",
+        "x": 596.3050833083087,
+        "y": 161.8656403700378
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 162.49666867881058,
+        "y": 372.91759810841904
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 575.4109745360228,
+          "y": 161.8656403700378
+        },
+        {
+          "x": 575.4109745360228,
+          "y": 222.4955691847753
+        },
+        {
+          "x": 537.6555412906044,
+          "y": 222.4955691847753
+        },
+        {
+          "x": 537.6555412906044,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000017",
+      "start": {
+        "componentId": "pot_1",
+        "pinName": "GND",
+        "x": 576.3050833083087,
+        "y": 161.8656403700378
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 585.4109745360228,
+          "y": 235.09423580485506
+        },
+        {
+          "x": 571.7367484839484,
+          "y": 235.09423580485506
+        },
+        {
+          "x": 571.7367484839484,
+          "y": 252.49128545548183
+        },
+        {
+          "x": 371.5096562230522,
+          "y": 252.49128545548183
+        },
+        {
+          "x": 371.5096562230522,
+          "y": 162.4955691847753
+        }
+      ],
+      "id": "wire-1795400000018",
+      "start": {
+        "componentId": "pot_1",
+        "pinName": "SIG",
+        "x": 586.3050833083087,
+        "y": 161.8656403700378
+      },
+      "end": {
+        "componentId": "mcp3008_1",
+        "pinName": "CH0",
+        "x": 397.34538507972553,
+        "y": 162.4955691847753
+      },
+      "color": "#3b82f6",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 389.9571313390741,
+          "y": 569.1100627126926
+        },
+        {
+          "x": 389.9571313390741,
+          "y": 270.06069837899526
+        },
+        {
+          "x": 616,
+          "y": 270.06069837899526
+        },
+        {
+          "x": 616,
+          "y": 233.19198700668446
+        },
+        {
+          "x": 645.0893804361713,
+          "y": 233.19198700668446
+        }
+      ],
+      "id": "wire-1795400000019",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q0",
+        "x": 400.79863832039996,
+        "y": 569.8012133291417
+      },
+      "end": {
+        "componentId": "r1",
+        "pinName": "1",
+        "x": 645.0893804361713,
+        "y": 232.54380436171232
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 704.8,
+          "y": 233.19198700668446
+        },
+        {
+          "x": 791,
+          "y": 233.19198700668446
+        },
+        {
+          "x": 793.4538140012305,
+          "y": 241.65
+        }
+      ],
+      "id": "wire-1795400000020",
+      "start": {
+        "componentId": "r1",
+        "pinName": "2",
+        "x": 703.8893804361712,
+        "y": 232.54380436171232
+      },
+      "end": {
+        "componentId": "led1",
+        "pinName": "A",
+        "x": 793.4538140012305,
+        "y": 205.66467835122486
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 781,
+          "y": 205.66467835122486
+        },
+        {
+          "x": 781,
+          "y": 222.4955691847753
+        },
+        {
+          "x": 743,
+          "y": 222.4955691847753
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000021",
+      "start": {
+        "componentId": "led1",
+        "pinName": "C",
+        "x": 783.4538140012305,
+        "y": 205.66467835122486
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 378.3831730585609,
+          "y": 589.1100627126926
+        },
+        {
+          "x": 378.3831730585609,
+          "y": 295.49556918477526
+        },
+        {
+          "x": 646,
+          "y": 295.49556918477526
+        }
+      ],
+      "id": "wire-1795400000022",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q1",
+        "x": 400.79863832039996,
+        "y": 589.8012133291417
+      },
+      "end": {
+        "componentId": "r2",
+        "pinName": "1",
+        "x": 646,
+        "y": 293.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 791.9106195638288,
+          "y": 293.65
+        }
+      ],
+      "id": "wire-1795400000023",
+      "start": {
+        "componentId": "r2",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 293.65
+      },
+      "end": {
+        "componentId": "led2",
+        "pinName": "A",
+        "x": 791.6162749418421,
+        "y": 274.82930832203795
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 781.6162749418421,
+          "y": 284.33918986797363
+        },
+        {
+          "x": 743,
+          "y": 284.33918986797363
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000024",
+      "start": {
+        "componentId": "led2",
+        "pinName": "C",
+        "x": 781.6162749418421,
+        "y": 274.82930832203795
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 616,
+          "y": 449.80121332914166
+        },
+        {
+          "x": 616,
+          "y": 345.65
+        }
+      ],
+      "id": "wire-1795400000025",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q2",
+        "x": 484.79863832039996,
+        "y": 449.80121332914166
+      },
+      "end": {
+        "componentId": "r3",
+        "pinName": "1",
+        "x": 646,
+        "y": 345.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 791,
+          "y": 345.65
+        }
+      ],
+      "id": "wire-1795400000026",
+      "start": {
+        "componentId": "r3",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 345.65
+      },
+      "end": {
+        "componentId": "led3",
+        "pinName": "A",
+        "x": 790.4113107560266,
+        "y": 331.9986810830238
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 780.4113107560266,
+          "y": 335.88071420050784
+        },
+        {
+          "x": 743,
+          "y": 335.88071420050784
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000027",
+      "start": {
+        "componentId": "led3",
+        "pinName": "C",
+        "x": 780.4113107560266,
+        "y": 331.9986810830238
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 484.79863832039996,
+          "y": 397.65
+        }
+      ],
+      "id": "wire-1795400000028",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q3",
+        "x": 484.79863832039996,
+        "y": 469.80121332914166
+      },
+      "end": {
+        "componentId": "r4",
+        "pinName": "1",
+        "x": 646,
+        "y": 397.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 789.1787608723427,
+          "y": 397.65
+        }
+      ],
+      "id": "wire-1795400000029",
+      "start": {
+        "componentId": "r4",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 397.65
+      },
+      "end": {
+        "componentId": "led4",
+        "pinName": "A",
+        "x": 789.1787608723427,
+        "y": 383.62468661788097
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 779.1787608723427,
+          "y": 389.1554457876381
+        },
+        {
+          "x": 743,
+          "y": 389.1554457876381
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000030",
+      "start": {
+        "componentId": "led4",
+        "pinName": "C",
+        "x": 779.1787608723427,
+        "y": 383.62468661788097
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 625.8806924889716,
+          "y": 489.80121332914166
+        },
+        {
+          "x": 625.8806924889716,
+          "y": 449.65
+        }
+      ],
+      "id": "wire-1795400000031",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q4",
+        "x": 484.79863832039996,
+        "y": 489.80121332914166
+      },
+      "end": {
+        "componentId": "r5",
+        "pinName": "1",
+        "x": 646,
+        "y": 449.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 790.3308201699398,
+          "y": 449.65
+        }
+      ],
+      "id": "wire-1795400000032",
+      "start": {
+        "componentId": "r5",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 449.65
+      },
+      "end": {
+        "componentId": "led5",
+        "pinName": "A",
+        "x": 790.3308201699398,
+        "y": 440.61283767274585
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 780.3308201699398,
+          "y": 443.29138034867026
+        },
+        {
+          "x": 743,
+          "y": 443.29138034867026
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000033",
+      "start": {
+        "componentId": "led5",
+        "pinName": "C",
+        "x": 780.3308201699398,
+        "y": 440.61283767274585
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 646,
+          "y": 509.80121332914166
+        }
+      ],
+      "id": "wire-1795400000034",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q5",
+        "x": 484.79863832039996,
+        "y": 509.80121332914166
+      },
+      "end": {
+        "componentId": "r6",
+        "pinName": "1",
+        "x": 646,
+        "y": 507.96590201037446
+      },
+      "color": "#2a75bb",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 704.8,
+          "y": 506.9420720375631
+        },
+        {
+          "x": 790.3905477762632,
+          "y": 506.9420720375631
+        }
+      ],
+      "id": "wire-1795400000035",
+      "start": {
+        "componentId": "r6",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 507.96590201037446
+      },
+      "end": {
+        "componentId": "led6",
+        "pinName": "A",
+        "x": 789.5502268137283,
+        "y": 498.1284502514783
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 779.5502268137283,
+          "y": 501.65
+        },
+        {
+          "x": 743,
+          "y": 501.65
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000036",
+      "start": {
+        "componentId": "led6",
+        "pinName": "C",
+        "x": 779.5502268137283,
+        "y": 498.1284502514783
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 606.3393222761489,
+          "y": 529.8012133291417
+        },
+        {
+          "x": 606.3393222761489,
+          "y": 553.65
+        }
+      ],
+      "id": "wire-1795400000037",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q6",
+        "x": 484.79863832039996,
+        "y": 529.8012133291417
+      },
+      "end": {
+        "componentId": "r7",
+        "pinName": "1",
+        "x": 646,
+        "y": 553.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 788.2792164832866,
+          "y": 553.65
+        },
+        {
+          "x": 788.2792164832866,
+          "y": 545.728972921308
+        }
+      ],
+      "id": "wire-1795400000038",
+      "start": {
+        "componentId": "r7",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 553.65
+      },
+      "end": {
+        "componentId": "led7",
+        "pinName": "A",
+        "x": 788.8533868841017,
+        "y": 545.728972921308
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 743,
+          "y": 545.728972921308
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000039",
+      "start": {
+        "componentId": "led7",
+        "pinName": "C",
+        "x": 778.8533868841017,
+        "y": 545.728972921308
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 552.8576774831603,
+          "y": 549.8012133291417
+        },
+        {
+          "x": 552.8576774831603,
+          "y": 605.65
+        }
+      ],
+      "id": "wire-1795400000040",
+      "start": {
+        "componentId": "hc595_1",
+        "pinName": "Q7",
+        "x": 484.79863832039996,
+        "y": 549.8012133291417
+      },
+      "end": {
+        "componentId": "r8",
+        "pinName": "1",
+        "x": 646,
+        "y": 605.65
+      },
+      "color": "#2a75bb",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 788.7326804027389,
+          "y": 605.65
+        }
+      ],
+      "id": "wire-1795400000041",
+      "start": {
+        "componentId": "r8",
+        "pinName": "2",
+        "x": 704.8,
+        "y": 605.65
+      },
+      "end": {
+        "componentId": "led8",
+        "pinName": "A",
+        "x": 788.7326804027389,
+        "y": 594.8397523769677
+      },
+      "color": "#2a75bb",
+      "autoRouted": true
+    },
+    {
+      "waypoints": [
+        {
+          "x": 743,
+          "y": 594.8397523769677
+        },
+        {
+          "x": 743,
+          "y": 51.02322959810072
+        },
+        {
+          "x": 117.99666867881058,
+          "y": 51.02322959810072
+        }
+      ],
+      "id": "wire-1795400000042",
+      "start": {
+        "componentId": "led8",
+        "pinName": "C",
+        "x": 778.7326804027389,
+        "y": 594.8397523769677
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "GND",
+        "x": 117.99666867881058,
+        "y": 190.41759810841907
+      },
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

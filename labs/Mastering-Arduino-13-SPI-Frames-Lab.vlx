@@ -1,0 +1,233 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-11-23T03:58:38.879Z",
+  "boards": [
+    {
+      "id": "arduino-uno",
+      "boardKind": "arduino-uno",
+      "x": 22.266344675347682,
+      "y": 109.26015367958973,
+      "activeFileGroupId": "group-arduino-uno",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-arduino-uno": [
+      {
+        "name": "sketch.ino",
+        "content": "#include <SPI.h>                   // Load the SPI library\n\nconst byte OLED_CS = 10;           // Chip select, active low\nconst byte OLED_DC = 9;            // Data/command select: LOW means command byte, HIGH means pixel byte\nconst byte OLED_RES = 8;           // Reset, active low\n\n// Setup commands, each one defined in the SSD1306 datasheet.\nconst byte initCommands[] = {\n  0x8D, 0x14,                      // Charge pump setting: enable the charge pump\n  0x20, 0x00,                      // Memory addressing mode: horizontal\n  0x21, 0x00, 0x7F,                // Column address range: 0 to 127\n  0x22, 0x00, 0x07,                // Page address range: 0 to 7\n  0xAF                             // Display on\n};\n\nvoid setup() {\n  Serial.begin(115200);            // Report each frame over USB\n  pinMode(OLED_CS, OUTPUT);        // Chip select is an output\n  pinMode(OLED_DC, OUTPUT);        // Data/command select is an output\n  pinMode(OLED_RES, OUTPUT);       // Reset is an output\n  digitalWrite(OLED_CS, HIGH);     // Start deselected\n  SPI.begin();                     // Start the SPI controller (MOSI is D11, SCK is D13)\n\n  digitalWrite(OLED_RES, LOW);     // Hold the display in reset\n  delay(10);                       // Wait 10 milliseconds\n  digitalWrite(OLED_RES, HIGH);    // Release the reset\n  delay(10);                       // Give the display time to start\n\n  SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0)); // The display captures on the rising edge\n\n  digitalWrite(OLED_DC, LOW);      // The next bytes are commands\n  digitalWrite(OLED_CS, LOW);      // Frame 1 starts\n  for (byte i = 0; i < sizeof(initCommands); i++) {\n    SPI.transfer(initCommands[i]); // Send one command byte\n  }\n  digitalWrite(OLED_CS, HIGH);     // Frame 1 ends\n  Serial.print(\"Frame 1: \");       // Report how many command bytes went out\n  Serial.print(sizeof(initCommands));\n  Serial.println(\" command bytes\");\n\n  digitalWrite(OLED_DC, HIGH);     // The next bytes are pixel data\n  digitalWrite(OLED_CS, LOW);      // Frame 2 starts\n  for (byte page = 0; page < 8; page++) {          // The display has 8 pages of 8 pixel rows\n    for (byte column = 0; column < 128; column++) { // Each page has 128 columns\n      byte pixels = (column / 16 >= page) ? 0xFF : 0x00; // A staircase: one more step per page\n      SPI.transfer(pixels);        // Send one column of 8 pixels\n    }\n  }\n  digitalWrite(OLED_CS, HIGH);     // Frame 2 ends\n  Serial.println(\"Frame 2: 1024 pixel bytes\");\n\n  SPI.endTransaction();            // Release the bus\n}\n\nvoid loop() {\n  // The picture stays on the display. Nothing to repeat.\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "ssd1306_1795332607820_oled",
+      "metadataId": "ssd1306",
+      "x": 322.04760580904673,
+      "y": 107.51567301329422,
+      "properties": {}
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [
+        {
+          "x": 364.54760580904673,
+          "y": 52.29209294137117
+        },
+        {
+          "x": 166.26634467534768,
+          "y": 52.29209294137117
+        }
+      ],
+      "id": "wire-1795332607820",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "DATA",
+        "x": 364.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "11",
+        "x": 166.26634467534768,
+        "y": 118.26015367958973
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 373.54760580904673,
+          "y": 43.92971654425581
+        },
+        {
+          "x": 147.26634467534768,
+          "y": 43.92971654425581
+        }
+      ],
+      "id": "wire-1795332607821",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "CLK",
+        "x": 373.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "13",
+        "x": 147.26634467534768,
+        "y": 118.26015367958973
+      },
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 382.54760580904673,
+          "y": 60
+        },
+        {
+          "x": 185.26634467534768,
+          "y": 60
+        }
+      ],
+      "id": "wire-1795332607822",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "DC",
+        "x": 382.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "9",
+        "x": 185.26634467534768,
+        "y": 118.26015367958973
+      },
+      "color": "#f97316",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 392.54760580904673,
+          "y": 69.01684573560189
+        },
+        {
+          "x": 195.26634467534768,
+          "y": 69.01684573560189
+        }
+      ],
+      "id": "wire-1795332607823",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "RST",
+        "x": 392.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "8",
+        "x": 195.26634467534768,
+        "y": 118.26015367958973
+      },
+      "color": "#06b6d4",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 402.54760580904673,
+          "y": 76.0927026870072
+        },
+        {
+          "x": 175.76634467534768,
+          "y": 76.0927026870072
+        }
+      ],
+      "id": "wire-1795332607824",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "CS",
+        "x": 402.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "10",
+        "x": 175.76634467534768,
+        "y": 118.26015367958973
+      },
+      "color": "#d946ef",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 421.54760580904673,
+          "y": 76.0927026870072
+        },
+        {
+          "x": 489.9905981192885,
+          "y": 76.0927026870072
+        },
+        {
+          "x": 489.9905981192885,
+          "y": 338.54368228891775
+        },
+        {
+          "x": 182.26634467534768,
+          "y": 338.54368228891775
+        }
+      ],
+      "id": "wire-1795332607826",
+      "start": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "VIN",
+        "x": 421.54760580904673,
+        "y": 126.01567301329422
+      },
+      "end": {
+        "componentId": "arduino-uno",
+        "pinName": "5V",
+        "x": 182.26634467534768,
+        "y": 300.76015367958973
+      },
+      "color": "#ef4444",
+      "autoRouted": false
+    },
+    {
+      "id": "wire-1795406290079",
+      "start": {
+        "componentId": "arduino-uno",
+        "pinName": "GND.1",
+        "x": 137.76634467534768,
+        "y": 118.26015367958973
+      },
+      "end": {
+        "componentId": "ssd1306_1795332607820_oled",
+        "pinName": "GND",
+        "x": 431.54760580904673,
+        "y": 125.51567301329422
+      },
+      "waypoints": [
+        {
+          "x": 137.76634467534768,
+          "y": 95.82985771344202
+        },
+        {
+          "x": 431.54760580904673,
+          "y": 95.82985771344202
+        }
+      ],
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "arduino-uno"
+}

@@ -1,0 +1,125 @@
+{
+  "format": "velxio-project",
+  "version": 1,
+  "exportedAt": "2026-11-24T06:05:28.880Z",
+  "name": "sketch",
+  "boards": [
+    {
+      "id": "esp32-devkit-c-v4",
+      "boardKind": "esp32-devkit-c-v4",
+      "x": 110.90261588664902,
+      "y": 56.049828276433686,
+      "activeFileGroupId": "group-esp32-devkit-c-v4",
+      "languageMode": "arduino",
+      "serialBaudRate": 0
+    }
+  ],
+  "fileGroups": {
+    "group-esp32-devkit-c-v4": [
+      {
+        "name": "sketch.ino",
+        "content": "// Part 3: blink an external LED wired to GPIO 27 through a 220 ohm resistor.\n\nconst int kLedPin = 27;      // The GPIO number the resistor and LED are wired to. const means the value never changes.\n\nvoid setup() {\n  pinMode(kLedPin, OUTPUT);  // Make GPIO 27 an output so the sketch can drive it to 0V or 3.3V.\n}\n\nvoid loop() {\n  digitalWrite(kLedPin, HIGH);  // Drive the pin to 3.3V. Current flows through the resistor and LED, and the LED lights.\n  delay(1000);                  // Wait 1000 milliseconds (one second) with the LED on.\n  digitalWrite(kLedPin, LOW);   // Drive the pin to 0V. No current flows, and the LED goes dark.\n  delay(1000);                  // Wait one second with the LED off, then loop() starts again.\n}\n"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "resistor_220_led",
+      "metadataId": "resistor-220",
+      "x": 39.01307645547705,
+      "y": 121.87713263507547,
+      "properties": {
+        "value": "220",
+        "rotation": 270
+      }
+    },
+    {
+      "id": "led_red_1",
+      "metadataId": "led",
+      "x": 17.491930123701778,
+      "y": 58.03617648377997,
+      "properties": {
+        "color": "red"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "waypoints": [],
+      "id": "wire-esp03-1",
+      "start": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "27",
+        "x": 116.90261588664902,
+        "y": 221.0498282764337
+      },
+      "end": {
+        "componentId": "resistor_220_led",
+        "pinName": "1",
+        "x": 78.16307645547707,
+        "y": 192.37713263507547
+      },
+      "color": "#22c55e",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 78.16307645547705,
+          "y": 122.77742697910969
+        },
+        {
+          "x": 48.49193012370178,
+          "y": 122.77742697910969
+        }
+      ],
+      "id": "wire-esp03-2",
+      "start": {
+        "componentId": "resistor_220_led",
+        "pinName": "2",
+        "x": 78.16307645547705,
+        "y": 133.5771326350755
+      },
+      "end": {
+        "componentId": "led_red_1",
+        "pinName": "A",
+        "x": 48.49193012370178,
+        "y": 106.03617648377997
+      },
+      "color": "#eab308",
+      "autoRouted": false
+    },
+    {
+      "waypoints": [
+        {
+          "x": 38.49193012370178,
+          "y": 129.12366653250643
+        },
+        {
+          "x": 21.777952904485723,
+          "y": 129.12366653250643
+        },
+        {
+          "x": 21.777952904485723,
+          "y": 259.0498282764337
+        }
+      ],
+      "id": "wire-esp03-3",
+      "start": {
+        "componentId": "led_red_1",
+        "pinName": "C",
+        "x": 38.49193012370178,
+        "y": 106.03617648377997
+      },
+      "end": {
+        "componentId": "esp32-devkit-c-v4",
+        "pinName": "GND.1",
+        "x": 116.90261588664902,
+        "y": 259.0498282764337
+      },
+      "color": "#808080",
+      "autoRouted": false
+    }
+  ],
+  "activeBoardId": "esp32-devkit-c-v4"
+}
